@@ -11,6 +11,7 @@ import (
 	"github.com/finops-claw-gang/finops-go/internal/domain"
 	"github.com/finops-claw-gang/finops-go/internal/policy"
 	"github.com/finops-claw-gang/finops-go/internal/temporal/activities"
+	"github.com/finops-claw-gang/finops-go/internal/temporal/versioning"
 )
 
 // UpdateNameApproval is the Temporal Update handler name for HIL.
@@ -99,6 +100,7 @@ func AnomalyLifecycleWorkflow(ctx workflow.Context, input WorkflowInput) (Workfl
 	state.CurrentPhase = "triage"
 	var triageOut activities.TriageOutput
 	err := workflow.ExecuteActivity(actCtx, "TriageAnomaly", activities.TriageInput{
+		Tenant:      input.Tenant,
 		Anomaly:     *input.Anomaly,
 		WindowStart: input.WindowStart,
 		WindowEnd:   input.WindowEnd,
@@ -125,6 +127,7 @@ func AnomalyLifecycleWorkflow(ctx workflow.Context, input WorkflowInput) (Workfl
 	state.CurrentPhase = "analyst"
 	var planOut activities.PlanActionsOutput
 	err = workflow.ExecuteActivity(actCtx, "PlanActions", activities.PlanActionsInput{
+		Tenant:      input.Tenant,
 		AccountID:   input.Anomaly.AccountID,
 		Service:     input.Anomaly.Service,
 		WindowStart: input.WindowStart,
@@ -189,10 +192,21 @@ func AnomalyLifecycleWorkflow(ctx workflow.Context, input WorkflowInput) (Workfl
 
 	// ------------------------------------------------------------------
 	// Executor: run approved actions (no retries for safety)
+	// Route to QueueExec for write-permission isolation (V2+).
 	// ------------------------------------------------------------------
 	state.CurrentPhase = "executor"
+	execCtx := actCtx
+	v := workflow.GetVersion(ctx, "exec-queue-routing", workflow.DefaultVersion, 1)
+	if v == 1 {
+		execCtx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			TaskQueue:           versioning.QueueExec,
+			StartToCloseTimeout: 2 * time.Minute,
+			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+		})
+	}
 	var execOut activities.ExecuteActionsOutput
-	err = workflow.ExecuteActivity(actCtx, "ExecuteActions", activities.ExecuteActionsInput{
+	err = workflow.ExecuteActivity(execCtx, "ExecuteActions", activities.ExecuteActionsInput{
+		Tenant:   input.Tenant,
 		Approval: state.Approval,
 		Actions:  planOut.Result.RecommendedActions,
 	}).Get(ctx, &execOut)
@@ -211,6 +225,7 @@ func AnomalyLifecycleWorkflow(ctx workflow.Context, input WorkflowInput) (Workfl
 	state.CurrentPhase = "verifier"
 	var verifyOut activities.VerifyOutcomeOutput
 	err = workflow.ExecuteActivity(actCtx, "VerifyOutcome", activities.VerifyOutcomeInput{
+		Tenant:      input.Tenant,
 		Service:     input.Anomaly.Service,
 		AccountID:   input.Anomaly.AccountID,
 		WindowStart: input.WindowStart,

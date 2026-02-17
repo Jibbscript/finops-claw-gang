@@ -9,6 +9,9 @@
 *.dylib
 finops-go/worker-finops
 finops-go/cli
+finops-go/api
+finops-go/mcp-finops
+finops-go/shadow-compare
 
 # Test binary, built with `go test -c`
 *.test

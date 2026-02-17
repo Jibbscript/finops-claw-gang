@@ -1,13 +1,18 @@
 // Command worker-finops runs the Temporal worker for FinOps workflows.
 // Supports stub mode (fixtures) and production mode (real AWS connectors).
+// Supports multi-queue operation via FINOPS_WORKER_QUEUES env var.
 package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/finops-claw-gang/finops-go/internal/config"
 	"github.com/finops-claw-gang/finops-go/internal/connectors"
@@ -16,7 +21,9 @@ import (
 	"github.com/finops-claw-gang/finops-go/internal/connectors/kubecost"
 	"github.com/finops-claw-gang/finops-go/internal/domain"
 	"github.com/finops-claw-gang/finops-go/internal/executor"
+	"github.com/finops-claw-gang/finops-go/internal/observability"
 	"github.com/finops-claw-gang/finops-go/internal/temporal/activities"
+	"github.com/finops-claw-gang/finops-go/internal/temporal/queues"
 	"github.com/finops-claw-gang/finops-go/internal/temporal/versioning"
 	"github.com/finops-claw-gang/finops-go/internal/temporal/workflows"
 	"github.com/finops-claw-gang/finops-go/internal/testutil"
@@ -39,7 +46,20 @@ func (a *awsdoctorAdapter) Waste(ctx context.Context, accountID, region, profile
 func main() {
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
-		log.Fatalf("config: %v", err)
+		slog.Error("config error", "error", err)
+		os.Exit(1)
+	}
+
+	logger := observability.InitLogger(cfg.LogLevel)
+	temporalLogger := observability.NewTemporalSlogAdapter(logger)
+
+	if cfg.OTelEnabled {
+		shutdown, err := observability.InitTracer(context.Background(), "worker-finops")
+		if err != nil {
+			logger.Error("otel init failed", "error", err)
+		} else {
+			defer shutdown(context.Background())
+		}
 	}
 
 	var (
@@ -53,7 +73,8 @@ func main() {
 	case config.ModeProduction:
 		awsCfg, err := awsauth.NewAWSConfig(context.Background(), cfg.AWSRegion, cfg.AWSProfile, cfg.CrossAccountRole)
 		if err != nil {
-			log.Fatalf("aws config: %v", err)
+			logger.Error("aws config failed", "error", err)
+			os.Exit(1)
 		}
 
 		cost = connectors.NewAWSCostClient(awsCfg, cfg.CURDatabase, cfg.CURTable, cfg.CURWorkgroup, cfg.CUROutputBucket)
@@ -65,7 +86,6 @@ func main() {
 			kubeCost = &testutil.StubKubeCost{FixturesDir: testutil.GoldenDir()}
 		}
 
-		// aws-doctor: wrap the BinaryRunner as a WasteQuerier via an adapter
 		awsDoc = &awsdoctorAdapter{
 			runner: awsdoctor.NewBinaryRunner(cfg.AWSDocBinaryPath),
 		}
@@ -81,9 +101,12 @@ func main() {
 		awsDoc = &testutil.StubAWSDoctor{FixturesDir: fixturesDir}
 	}
 
-	c, err := client.Dial(client.Options{})
+	c, err := client.Dial(client.Options{
+		Logger: temporalLogger,
+	})
 	if err != nil {
-		log.Fatalf("unable to create Temporal client: %v", err)
+		logger.Error("unable to create Temporal client", "error", err)
+		os.Exit(1)
 	}
 	defer c.Close()
 
@@ -97,14 +120,41 @@ func main() {
 		Executor: exec,
 	}
 
-	w := worker.New(c, versioning.QueueAnomaly, worker.Options{})
-	w.RegisterWorkflow(workflows.AnomalyLifecycleWorkflow)
-	w.RegisterWorkflow(workflows.ScheduledDetectionWorkflow)
-	w.RegisterWorkflow(workflows.AWSDocSweepWorkflow)
-	w.RegisterActivity(acts)
+	queueNames, err := queues.ParseQueues(cfg.WorkerQueues)
+	if err != nil {
+		logger.Error("parse queues failed", "error", err)
+		os.Exit(1)
+	}
+	queueConfigs := queues.DefaultConfigs()
 
-	log.Printf("starting worker on queue %s (mode=%s)", versioning.QueueAnomaly, cfg.Mode)
-	if err := w.Run(worker.InterruptCh()); err != nil {
-		log.Fatalf("worker failed: %v", err)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	g, ctx := errgroup.WithContext(ctx)
+	for _, qName := range queueNames {
+		qcfg := queueConfigs[qName]
+		w := worker.New(c, qName, qcfg.Options)
+
+		switch qName {
+		case versioning.QueueAnomaly:
+			w.RegisterWorkflow(workflows.AnomalyLifecycleWorkflow)
+			w.RegisterWorkflow(workflows.AWSDocSweepWorkflow)
+			w.RegisterActivity(acts)
+		case versioning.QueueDetect:
+			w.RegisterWorkflow(workflows.ScheduledDetectionWorkflow)
+			w.RegisterActivity(acts)
+		case versioning.QueueExec:
+			w.RegisterActivity(acts)
+		}
+
+		logger.Info("starting worker", "queue", qName, "mode", cfg.Mode)
+		g.Go(func() error {
+			return w.Run(worker.InterruptCh())
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		logger.Error("worker failed", "error", err)
+		os.Exit(1)
 	}
 }

@@ -7,9 +7,10 @@ import "github.com/finops-claw-gang/finops-go/internal/domain"
 
 // TriageInput is the activity input for anomaly triage.
 type TriageInput struct {
-	Anomaly     domain.CostAnomaly `json:"anomaly"`
-	WindowStart string             `json:"window_start"`
-	WindowEnd   string             `json:"window_end"`
+	Tenant      domain.TenantContext `json:"tenant,omitempty"`
+	Anomaly     domain.CostAnomaly   `json:"anomaly"`
+	WindowStart string               `json:"window_start"`
+	WindowEnd   string               `json:"window_end"`
 }
 
 // TriageOutput is the activity output from anomaly triage.
@@ -19,10 +20,11 @@ type TriageOutput struct {
 
 // PlanActionsInput is the activity input for analysis/planning.
 type PlanActionsInput struct {
-	AccountID   string `json:"account_id"`
-	Service     string `json:"service"`
-	WindowStart string `json:"window_start"`
-	WindowEnd   string `json:"window_end"`
+	Tenant      domain.TenantContext `json:"tenant,omitempty"`
+	AccountID   string               `json:"account_id"`
+	Service     string               `json:"service"`
+	WindowStart string               `json:"window_start"`
+	WindowEnd   string               `json:"window_end"`
 }
 
 // PlanActionsOutput is the activity output from analysis/planning.
@@ -33,6 +35,7 @@ type PlanActionsOutput struct {
 // ExecuteActionsInput is the activity input for action execution.
 // Tags are fetched inside the activity boundary, not passed in.
 type ExecuteActionsInput struct {
+	Tenant   domain.TenantContext       `json:"tenant,omitempty"`
 	Approval domain.ApprovalStatus      `json:"approval"`
 	Actions  []domain.RecommendedAction `json:"actions"`
 }
@@ -44,10 +47,11 @@ type ExecuteActionsOutput struct {
 
 // VerifyOutcomeInput is the activity input for post-execution verification.
 type VerifyOutcomeInput struct {
-	Service     string `json:"service"`
-	AccountID   string `json:"account_id"`
-	WindowStart string `json:"window_start"`
-	WindowEnd   string `json:"window_end"`
+	Tenant      domain.TenantContext `json:"tenant,omitempty"`
+	Service     string               `json:"service"`
+	AccountID   string               `json:"account_id"`
+	WindowStart string               `json:"window_start"`
+	WindowEnd   string               `json:"window_end"`
 }
 
 // VerifyOutcomeOutput is the activity output from verification.

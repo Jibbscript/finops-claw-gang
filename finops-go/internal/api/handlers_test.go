@@ -43,13 +43,15 @@ func (s *stubQuerier) SubmitApproval(_ context.Context, _ string, _ activities.A
 	return s.approval, s.err
 }
 
-func newTestServer(q querier.WorkflowQuerier) *httptest.Server {
-	srv := api.New(q, []string{"*"})
+func newTestServer(t *testing.T, q querier.WorkflowQuerier) *httptest.Server {
+	t.Helper()
+	srv, err := api.New(q, []string{"*"}, api.OIDCConfig{})
+	require.NoError(t, err)
 	return httptest.NewServer(srv)
 }
 
 func TestHealth(t *testing.T) {
-	ts := newTestServer(&stubQuerier{})
+	ts := newTestServer(t, &stubQuerier{})
 	defer ts.Close()
 
 	resp, err := http.Get(ts.URL + "/api/v1/health")
@@ -69,7 +71,7 @@ func TestListWorkflows(t *testing.T) {
 			{WorkflowID: "wf-2", Status: "Completed"},
 		},
 	}
-	ts := newTestServer(q)
+	ts := newTestServer(t, q)
 	defer ts.Close()
 
 	resp, err := http.Get(ts.URL + "/api/v1/workflows")
@@ -88,7 +90,7 @@ func TestGetWorkflow(t *testing.T) {
 	q := &stubQuerier{
 		state: &workflows.WorkflowResult{State: state, Reason: workflows.ReasonCompleted},
 	}
-	ts := newTestServer(q)
+	ts := newTestServer(t, q)
 	defer ts.Close()
 
 	resp, err := http.Get(ts.URL + "/api/v1/workflows/wf-1")
@@ -108,7 +110,7 @@ func TestGetWorkflowUI(t *testing.T) {
 	q := &stubQuerier{
 		state: &workflows.WorkflowResult{State: state},
 	}
-	ts := newTestServer(q)
+	ts := newTestServer(t, q)
 	defer ts.Close()
 
 	resp, err := http.Get(ts.URL + "/api/v1/workflows/wf-1/ui")
@@ -124,7 +126,7 @@ func TestGetWorkflowUI(t *testing.T) {
 
 func TestApprove(t *testing.T) {
 	q := &stubQuerier{approval: "approved"}
-	ts := newTestServer(q)
+	ts := newTestServer(t, q)
 	defer ts.Close()
 
 	body := `{"by": "ops-user"}`
@@ -140,7 +142,7 @@ func TestApprove(t *testing.T) {
 
 func TestDeny(t *testing.T) {
 	q := &stubQuerier{approval: "denied"}
-	ts := newTestServer(q)
+	ts := newTestServer(t, q)
 	defer ts.Close()
 
 	body := `{"by": "ops-lead", "reason": "too risky"}`
@@ -151,7 +153,7 @@ func TestDeny(t *testing.T) {
 }
 
 func TestApprove_MissingBy(t *testing.T) {
-	ts := newTestServer(&stubQuerier{})
+	ts := newTestServer(t, &stubQuerier{})
 	defer ts.Close()
 
 	body := `{}`
@@ -163,7 +165,7 @@ func TestApprove_MissingBy(t *testing.T) {
 
 func TestListWorkflows_Error(t *testing.T) {
 	q := &stubQuerier{err: fmt.Errorf("temporal unavailable")}
-	ts := newTestServer(q)
+	ts := newTestServer(t, q)
 	defer ts.Close()
 
 	resp, err := http.Get(ts.URL + "/api/v1/workflows")
@@ -173,7 +175,7 @@ func TestListWorkflows_Error(t *testing.T) {
 }
 
 func TestRequestIDHeader(t *testing.T) {
-	ts := newTestServer(&stubQuerier{})
+	ts := newTestServer(t, &stubQuerier{})
 	defer ts.Close()
 
 	resp, err := http.Get(ts.URL + "/api/v1/health")
@@ -183,7 +185,7 @@ func TestRequestIDHeader(t *testing.T) {
 }
 
 func TestCORSHeaders(t *testing.T) {
-	ts := newTestServer(&stubQuerier{})
+	ts := newTestServer(t, &stubQuerier{})
 	defer ts.Close()
 
 	resp, err := http.Get(ts.URL + "/api/v1/health")
