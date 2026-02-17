@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "finops-desk"
+version = "0.1.0"
+description = "deterministic-first finops anomaly desk (langgraph)"
+requires-python = ">=3.10"
+dependencies = [
+  "langgraph>=0.2.0",
+  "langchain-core>=0.3.0",
+  "pydantic>=2.6.0",
+  "PyYAML>=6.0",
+]
+
+[project.scripts]
+finops-desk = "finops_desk.cli:main"

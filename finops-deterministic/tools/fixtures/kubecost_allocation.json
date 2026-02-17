@@ -1,0 +1,6 @@
+{
+  "allocations": {
+    "platform": {"totalCost": 200.0, "delta": 20.0},
+    "ml": {"totalCost": 600.0, "delta": 180.0}
+  }
+}
