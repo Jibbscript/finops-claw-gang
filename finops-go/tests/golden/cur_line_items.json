@@ -1,0 +1,23 @@
+[
+  {
+    "line_item_line_item_type": "Usage",
+    "line_item_usage_type": "USE2-BoxUsage:c5.2xlarge",
+    "line_item_product_code": "AmazonEC2",
+    "product_product_name": "Amazon Elastic Compute Cloud",
+    "unblended_cost": 1200.0
+  },
+  {
+    "line_item_line_item_type": "Usage",
+    "line_item_usage_type": "USE2-DataTransfer-Out-Bytes",
+    "line_item_product_code": "AmazonEC2",
+    "product_product_name": "Amazon Elastic Compute Cloud",
+    "unblended_cost": 250.0
+  },
+  {
+    "line_item_line_item_type": "Credit",
+    "line_item_usage_type": "",
+    "line_item_product_code": "",
+    "product_product_name": "",
+    "unblended_cost": -50.0
+  }
+]
