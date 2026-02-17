@@ -1,10 +1,14 @@
 package testutil
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"github.com/finops-claw-gang/finops-go/internal/connectors/awsdoctor"
+	"github.com/finops-claw-gang/finops-go/internal/domain"
 )
 
 // StubCost satisfies triage.CostFetcher, analysis.CostQuerier, and verifier.CostChecker.
@@ -100,6 +104,25 @@ func (s *StubKubeCost) Allocation(window, aggregate string) (map[string]any, err
 	var m map[string]any
 	err = json.Unmarshal(data, &m)
 	return m, err
+}
+
+// StubAWSDoctor satisfies triage.WasteQuerier using golden fixtures.
+// It loads the real aws-doctor JSON format and delegates to awsdoctor.MapWasteFindings
+// for consistent mapping behavior with production code.
+type StubAWSDoctor struct {
+	FixturesDir string
+}
+
+func (s *StubAWSDoctor) Waste(_ context.Context, _, region, _ string) ([]domain.WasteFinding, error) {
+	data, err := os.ReadFile(filepath.Join(s.FixturesDir, "waste_report.json"))
+	if err != nil {
+		return nil, err
+	}
+	var report awsdoctor.WasteReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		return nil, err
+	}
+	return awsdoctor.MapWasteFindings(report, region), nil
 }
 
 // GoldenDir returns the absolute path to the tests/golden directory.

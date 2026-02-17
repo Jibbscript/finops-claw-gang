@@ -1,0 +1,58 @@
+{
+  "account_id": "123456789012",
+  "generated_at": "2026-02-17T10:00:00Z",
+  "has_waste": true,
+  "unused_elastic_ips": [
+    {
+      "public_ip": "203.0.113.42",
+      "allocation_id": "eipalloc-0abcdef1234567890"
+    }
+  ],
+  "unused_ebs_volumes": [
+    {
+      "volume_id": "vol-0aaa111222333abcd",
+      "size_gib": 100,
+      "status": "available"
+    }
+  ],
+  "stopped_instance_volumes": [
+    {
+      "volume_id": "vol-0bbb444555666efgh",
+      "size_gib": 50,
+      "status": "in-use"
+    }
+  ],
+  "stopped_instances": [
+    {
+      "instance_id": "i-0123456789abcdef0",
+      "stopped_at": "2026-01-15T08:30:00Z",
+      "days_ago": 33
+    }
+  ],
+  "reserved_instances": [],
+  "unused_load_balancers": [],
+  "unused_amis": [],
+  "orphaned_snapshots": [
+    {
+      "snapshot_id": "snap-0aaa111222333abcd",
+      "volume_id": "vol-deleted",
+      "volume_exists": false,
+      "used_by_ami": false,
+      "size_gb": 200,
+      "start_time": "2025-06-01T00:00:00Z",
+      "days_since_create": 261,
+      "category": "orphaned",
+      "reason": "source volume deleted",
+      "max_potential_savings": 10.00
+    }
+  ],
+  "stale_snapshots": [],
+  "unused_key_pairs": [
+    {
+      "key_name": "old-dev-key",
+      "key_pair_id": "key-0aaa111222333abcd",
+      "creation_date": "2024-03-01T00:00:00Z",
+      "days_since_create": 718
+    }
+  ]
+}

@@ -31,6 +31,8 @@ type Config struct {
 	// API server settings.
 	APIPort     string
 	CORSOrigins []string
+	AWSDocBinaryPath string
+	SweepAccounts    string
 }
 
 // LoadFromEnv reads configuration from environment variables with sensible defaults.
@@ -48,6 +50,8 @@ func LoadFromEnv() (Config, error) {
 		KubeCostEndpoint: os.Getenv("FINOPS_KUBECOST_ENDPOINT"),
 		APIPort:          envOr("FINOPS_API_PORT", "8080"),
 		CORSOrigins:      parseCORSOrigins(os.Getenv("FINOPS_CORS_ORIGINS")),
+		AWSDocBinaryPath: envOr("FINOPS_AWSDOC_BINARY", "aws-doctor"),
+		SweepAccounts:    os.Getenv("FINOPS_SWEEP_ACCOUNTS"),
 	}
 
 	if cfg.Mode != ModeStub && cfg.Mode != ModeProduction {

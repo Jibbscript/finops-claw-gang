@@ -1,6 +1,7 @@
 package triage
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -82,17 +83,20 @@ func stringFromMap(m map[string]any, key string, fallback string) string {
 // Priority order:
 //  1. RI/SP commitment coverage drift
 //  2. Credits / refunds / fees
-//  3. Marketplace charges
-//  4. Data transfer spike
-//  5. KubeCost namespace allocation shift (kubecost may be nil)
-//  6. Deploy correlation
-//  7. Expected growth (usage vs cost pct change)
-//  8. Unknown (default)
+//  3. Resource waste (aws-doctor) — waste may be nil
+//  4. Marketplace charges
+//  5. Data transfer spike
+//  6. KubeCost namespace allocation shift (kubecost may be nil)
+//  7. Deploy correlation
+//  8. Expected growth (usage vs cost pct change)
+//  9. Unknown (default)
 func Triage(
+	ctx context.Context,
 	anomaly domain.CostAnomaly,
 	cost CostFetcher,
 	infra InfraQuerier,
 	kubecost KubeCostQuerier,
+	waste WasteQuerier,
 	windowStart, windowEnd string,
 ) (domain.TriageResult, error) {
 	if windowStart == "" {
@@ -171,7 +175,34 @@ func Triage(
 	}
 
 	// ---------------------------------------------------------------
-	// 3) Marketplace charges
+	// 3) Resource waste (aws-doctor) — optional
+	// ---------------------------------------------------------------
+	if waste != nil {
+		findings, err := waste.Waste(ctx, anomaly.AccountID, anomaly.Region, "")
+		if err != nil {
+			return domain.TriageResult{}, fmt.Errorf("waste.Waste: %w", err)
+		}
+		if len(findings) > 0 {
+			ev.WasteFindings = findings
+			var totalSavings float64
+			for _, f := range findings {
+				totalSavings += f.EstimatedMonthlySavings
+			}
+			ev.WasteSavings = float64Ptr(totalSavings)
+			if totalSavings >= threshold {
+				return domain.TriageResult{
+					Category:   domain.CategoryResourceWaste,
+					Severity:   severity,
+					Confidence: 0.85,
+					Summary:    "resource waste detected by aws-doctor scan",
+					Evidence:   ev,
+				}, nil
+			}
+		}
+	}
+
+	// ---------------------------------------------------------------
+	// 4) Marketplace charges
 	// ---------------------------------------------------------------
 	var mp float64
 	for _, item := range cur {
@@ -194,7 +225,7 @@ func Triage(
 	}
 
 	// ---------------------------------------------------------------
-	// 4) Data transfer spike
+	// 5) Data transfer spike
 	// ---------------------------------------------------------------
 	var dt float64
 	for _, item := range cur {
@@ -216,7 +247,7 @@ func Triage(
 	}
 
 	// ---------------------------------------------------------------
-	// 5) KubeCost namespace allocation shift (optional)
+	// 6) KubeCost namespace allocation shift (optional)
 	// ---------------------------------------------------------------
 	if kubecost != nil {
 		alloc, err := kubecost.Allocation("24h", "namespace")
@@ -253,7 +284,7 @@ func Triage(
 	}
 
 	// ---------------------------------------------------------------
-	// 6) Deploy correlation
+	// 7) Deploy correlation
 	// ---------------------------------------------------------------
 	deploys, err := infra.RecentDeploys(anomaly.Service)
 	if err != nil {
@@ -277,7 +308,7 @@ func Triage(
 	}
 
 	// ---------------------------------------------------------------
-	// 7) Expected growth (usage pct vs cost pct)
+	// 8) Expected growth (usage pct vs cost pct)
 	// ---------------------------------------------------------------
 	metrics, err := infra.CloudWatchMetrics(anomaly.Service, "Requests", "Service")
 	if err != nil {
@@ -303,7 +334,7 @@ func Triage(
 	}
 
 	// ---------------------------------------------------------------
-	// 8) Unknown (default)
+	// 9) Unknown (default)
 	// ---------------------------------------------------------------
 	return domain.TriageResult{
 		Category:   domain.CategoryUnknown,
