@@ -178,7 +178,7 @@ func Triage(
 	// 3) Resource waste (aws-doctor) — optional
 	// ---------------------------------------------------------------
 	if waste != nil {
-		findings, err := waste.Waste(ctx, anomaly.AccountID, anomaly.Region)
+		findings, err := waste.Waste(ctx, anomaly.AccountID, anomaly.Region, "")
 		if err != nil {
 			return domain.TriageResult{}, fmt.Errorf("waste.Waste: %w", err)
 		}

@@ -28,8 +28,8 @@ type awsdoctorAdapter struct {
 	runner awsdoctor.Runner
 }
 
-func (a *awsdoctorAdapter) Waste(ctx context.Context, accountID, region string) ([]domain.WasteFinding, error) {
-	report, err := a.runner.Waste(ctx, awsdoctor.RunOpts{Region: region})
+func (a *awsdoctorAdapter) Waste(ctx context.Context, accountID, region, profile string) ([]domain.WasteFinding, error) {
+	report, err := a.runner.Waste(ctx, awsdoctor.RunOpts{Region: region, Profile: profile})
 	if err != nil {
 		return nil, err
 	}

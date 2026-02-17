@@ -54,6 +54,7 @@ var wasteActionType = map[string]string{
 	"ElasticIP":    "release_elastic_ip",
 	"LoadBalancer": "delete_load_balancer",
 	"AMI":          "deregister_ami",
+	"KeyPair":      "delete_key_pair",
 }
 
 // wasteRiskLevel maps a waste finding resource type to its risk level.
@@ -64,6 +65,7 @@ var wasteRiskLevel = map[string]domain.ActionRiskLevel{
 	"ElasticIP":    domain.RiskLow,
 	"LoadBalancer": domain.RiskMedium,
 	"AMI":          domain.RiskLow,
+	"KeyPair":      domain.RiskLow, // key pairs are metadata only
 }
 
 // wasteRollback maps a waste finding resource type to a rollback recipe.
@@ -74,6 +76,7 @@ var wasteRollback = map[string]string{
 	"ElasticIP":    "allocate new Elastic IP and update DNS",
 	"LoadBalancer": "recreate load balancer with same configuration",
 	"AMI":          "re-create AMI from running instance",
+	"KeyPair":      "create new key pair and update instances",
 }
 
 // AnalyzeWaste converts waste findings into candidate actions via templates.

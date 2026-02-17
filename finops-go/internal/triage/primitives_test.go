@@ -438,7 +438,7 @@ type mockWasteQuerier struct {
 	err      error
 }
 
-func (m *mockWasteQuerier) Waste(_ context.Context, _, _ string) ([]domain.WasteFinding, error) {
+func (m *mockWasteQuerier) Waste(_ context.Context, _, _, _ string) ([]domain.WasteFinding, error) {
 	return m.findings, m.err
 }
 

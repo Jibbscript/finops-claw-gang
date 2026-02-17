@@ -32,6 +32,7 @@ type SweepResult struct {
 	AccountsScanned   int `json:"accounts_scanned"`
 	WasteAnomalies    int `json:"waste_anomalies"`
 	ChildWorkflowsRun int `json:"child_workflows_run"`
+	ScanErrors        int `json:"scan_errors"`
 }
 
 // AWSDocSweepWorkflow runs aws-doctor waste scans across configured accounts.
@@ -60,7 +61,9 @@ func AWSDocSweepWorkflow(ctx workflow.Context, input SweepInput) (SweepResult, e
 			Profile:   acct.Profile,
 		}).Get(ctx, &wasteOut)
 		if err != nil {
-			return result, fmt.Errorf("waste scan for %s: %w", acct.AccountID, err)
+			logger.Warn("waste scan failed", "account", acct.AccountID, "error", err)
+			result.ScanErrors++
+			continue
 		}
 
 		logger.Info("waste scan complete",

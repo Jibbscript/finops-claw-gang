@@ -150,3 +150,50 @@ func TestCreateTicket_Stub(t *testing.T) {
 		t.Error("expected non-empty ticket ID")
 	}
 }
+
+func TestRunAWSDocWaste_NilAWSDoc(t *testing.T) {
+	a := newTestActivities() // AWSDoc is nil by default
+	_, err := a.RunAWSDocWaste(context.Background(), activities.AWSDocWasteInput{
+		AccountID: "123456789012",
+		Region:    "us-east-1",
+	})
+	if err == nil {
+		t.Fatal("expected error when AWSDoc is nil")
+	}
+}
+
+func TestRunAWSDocWaste_WithStub(t *testing.T) {
+	dir := testutil.GoldenDir()
+	a := newTestActivities()
+	a.AWSDoc = &testutil.StubAWSDoctor{FixturesDir: dir}
+
+	out, err := a.RunAWSDocWaste(context.Background(), activities.AWSDocWasteInput{
+		AccountID: "123456789012",
+		Region:    "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(out.Findings) == 0 {
+		t.Error("expected at least one finding from stub")
+	}
+	if out.TotalSavings <= 0 {
+		t.Error("expected positive total savings from stub")
+	}
+}
+
+func TestRunAWSDocTrend_Stub(t *testing.T) {
+	a := newTestActivities()
+	out, err := a.RunAWSDocTrend(context.Background(), activities.AWSDocTrendInput{
+		Region: "us-east-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.TrendDirection != "stable" {
+		t.Errorf("trend_direction = %q, want stable", out.TrendDirection)
+	}
+	if out.VelocityPct != 0 {
+		t.Errorf("velocity_pct = %f, want 0", out.VelocityPct)
+	}
+}

@@ -36,9 +36,9 @@ func TestMapWasteFindings(t *testing.T) {
 
 	findings := MapWasteFindings(report, "us-east-1")
 
-	// Expect: 1 stopped instance + 1 unattached volume + 1 stopped volume + 1 orphaned snapshot + 1 elastic IP = 5
-	if len(findings) != 5 {
-		t.Fatalf("expected 5 findings, got %d", len(findings))
+	// Expect: 1 stopped instance + 1 unattached volume + 1 stopped volume + 1 orphaned snapshot + 1 elastic IP + 1 key pair = 6
+	if len(findings) != 6 {
+		t.Fatalf("expected 6 findings, got %d", len(findings))
 	}
 
 	// Check stopped instance finding
@@ -105,6 +105,49 @@ func TestMapTrendMetrics_Stable(t *testing.T) {
 	direction, _ := MapTrendMetrics(report)
 	if direction != "stable" {
 		t.Errorf("direction = %q, want stable", direction)
+	}
+}
+
+func TestMapTrendMetrics_Decreasing(t *testing.T) {
+	t.Parallel()
+	report := TrendReport{
+		Months: []MonthCost{
+			{Start: "2026-01-01", Total: 10000},
+			{Start: "2026-02-01", Total: 8000},
+			{Start: "2026-03-01", Total: 6000},
+		},
+	}
+	direction, velocity := MapTrendMetrics(report)
+	if direction != "decreasing" {
+		t.Errorf("direction = %q, want decreasing", direction)
+	}
+	if velocity >= 0 {
+		t.Errorf("velocity = %f, expected negative", velocity)
+	}
+}
+
+func TestMapWasteFindings_KeyPair(t *testing.T) {
+	t.Parallel()
+
+	report := WasteReport{
+		AccountID: "123456789012",
+		UnusedKeyPairs: []KeyPair{
+			{KeyName: "old-key", KeyPairID: "key-abc123", DaysSinceCreate: 90},
+		},
+	}
+	findings := MapWasteFindings(report, "us-east-1")
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding, got %d", len(findings))
+	}
+	f := findings[0]
+	if f.ResourceType != "KeyPair" {
+		t.Errorf("resource_type = %q, want KeyPair", f.ResourceType)
+	}
+	if f.ResourceID != "key-abc123" {
+		t.Errorf("resource_id = %q, want key-abc123", f.ResourceID)
+	}
+	if f.EstimatedMonthlySavings != 0 {
+		t.Errorf("savings = %f, want 0", f.EstimatedMonthlySavings)
 	}
 }
 

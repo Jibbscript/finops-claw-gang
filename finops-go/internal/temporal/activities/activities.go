@@ -95,7 +95,7 @@ func (a *Activities) RunAWSDocWaste(ctx context.Context, in AWSDocWasteInput) (A
 	if a.AWSDoc == nil {
 		return AWSDocWasteOutput{}, fmt.Errorf("aws-doctor not configured")
 	}
-	findings, err := a.AWSDoc.Waste(ctx, in.AccountID, in.Region)
+	findings, err := a.AWSDoc.Waste(ctx, in.AccountID, in.Region, in.Profile)
 	if err != nil {
 		return AWSDocWasteOutput{}, fmt.Errorf("aws-doctor waste: %w", err)
 	}

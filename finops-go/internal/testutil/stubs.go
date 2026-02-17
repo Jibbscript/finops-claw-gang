@@ -3,11 +3,11 @@ package testutil
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 
+	"github.com/finops-claw-gang/finops-go/internal/connectors/awsdoctor"
 	"github.com/finops-claw-gang/finops-go/internal/domain"
 )
 
@@ -107,102 +107,22 @@ func (s *StubKubeCost) Allocation(window, aggregate string) (map[string]any, err
 }
 
 // StubAWSDoctor satisfies triage.WasteQuerier using golden fixtures.
-// It loads the real aws-doctor JSON format and maps findings to domain types.
+// It loads the real aws-doctor JSON format and delegates to awsdoctor.MapWasteFindings
+// for consistent mapping behavior with production code.
 type StubAWSDoctor struct {
 	FixturesDir string
 }
 
-// wasteReport mirrors the aws-doctor JSON shape (just the fields we need).
-type wasteReport struct {
-	AccountID        string           `json:"account_id"`
-	HasWaste         bool             `json:"has_waste"`
-	StoppedInstances []stoppedInst    `json:"stopped_instances"`
-	UnusedEBSVolumes []ebsVolume      `json:"unused_ebs_volumes"`
-	StoppedVolumes   []ebsVolume      `json:"stopped_instance_volumes"`
-	OrphanedSnaps    []snapshotEntry  `json:"orphaned_snapshots"`
-	UnusedElasticIPs []elasticIPEntry `json:"unused_elastic_ips"`
-}
-type stoppedInst struct {
-	InstanceID string `json:"instance_id"`
-	DaysAgo    int    `json:"days_ago"`
-}
-type ebsVolume struct {
-	VolumeID string `json:"volume_id"`
-	SizeGiB  int32  `json:"size_gib"`
-}
-type snapshotEntry struct {
-	SnapshotID          string  `json:"snapshot_id"`
-	Reason              string  `json:"reason"`
-	MaxPotentialSavings float64 `json:"max_potential_savings"`
-}
-type elasticIPEntry struct {
-	AllocationID string `json:"allocation_id"`
-}
-
-func (s *StubAWSDoctor) Waste(_ context.Context, accountID, region string) ([]domain.WasteFinding, error) {
+func (s *StubAWSDoctor) Waste(_ context.Context, _, region, _ string) ([]domain.WasteFinding, error) {
 	data, err := os.ReadFile(filepath.Join(s.FixturesDir, "waste_report.json"))
 	if err != nil {
 		return nil, err
 	}
-	var report wasteReport
+	var report awsdoctor.WasteReport
 	if err := json.Unmarshal(data, &report); err != nil {
 		return nil, err
 	}
-
-	var findings []domain.WasteFinding
-
-	for _, inst := range report.StoppedInstances {
-		findings = append(findings, domain.WasteFinding{
-			ResourceType:            "EC2",
-			ResourceID:              inst.InstanceID,
-			ResourceARN:             fmt.Sprintf("arn:aws:ec2:%s:%s:instance/%s", region, accountID, inst.InstanceID),
-			Reason:                  fmt.Sprintf("instance stopped for %d days", inst.DaysAgo),
-			EstimatedMonthlySavings: 0,
-			Region:                  region,
-		})
-	}
-	for _, vol := range report.UnusedEBSVolumes {
-		findings = append(findings, domain.WasteFinding{
-			ResourceType:            "EBS",
-			ResourceID:              vol.VolumeID,
-			ResourceARN:             fmt.Sprintf("arn:aws:ec2:%s:%s:volume/%s", region, accountID, vol.VolumeID),
-			Reason:                  "unattached EBS volume",
-			EstimatedMonthlySavings: float64(vol.SizeGiB) * 0.08,
-			Region:                  region,
-		})
-	}
-	for _, vol := range report.StoppedVolumes {
-		findings = append(findings, domain.WasteFinding{
-			ResourceType:            "EBS",
-			ResourceID:              vol.VolumeID,
-			ResourceARN:             fmt.Sprintf("arn:aws:ec2:%s:%s:volume/%s", region, accountID, vol.VolumeID),
-			Reason:                  "EBS volume attached to stopped instance",
-			EstimatedMonthlySavings: float64(vol.SizeGiB) * 0.08,
-			Region:                  region,
-		})
-	}
-	for _, snap := range report.OrphanedSnaps {
-		findings = append(findings, domain.WasteFinding{
-			ResourceType:            "Snapshot",
-			ResourceID:              snap.SnapshotID,
-			ResourceARN:             fmt.Sprintf("arn:aws:ec2:%s::snapshot/%s", region, snap.SnapshotID),
-			Reason:                  snap.Reason,
-			EstimatedMonthlySavings: snap.MaxPotentialSavings,
-			Region:                  region,
-		})
-	}
-	for _, eip := range report.UnusedElasticIPs {
-		findings = append(findings, domain.WasteFinding{
-			ResourceType:            "ElasticIP",
-			ResourceID:              eip.AllocationID,
-			ResourceARN:             fmt.Sprintf("arn:aws:ec2:%s:%s:elastic-ip/%s", region, accountID, eip.AllocationID),
-			Reason:                  "unassociated Elastic IP",
-			EstimatedMonthlySavings: 3.60,
-			Region:                  region,
-		})
-	}
-
-	return findings, nil
+	return awsdoctor.MapWasteFindings(report, region), nil
 }
 
 // GoldenDir returns the absolute path to the tests/golden directory.

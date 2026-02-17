@@ -109,7 +109,7 @@ func (s *SweepSuite) TestWasteBelowThreshold_NoChild() {
 	s.Equal(0, result.ChildWorkflowsRun)
 }
 
-func (s *SweepSuite) TestActivityError_ReturnsError() {
+func (s *SweepSuite) TestActivityError_ContinuesWithCount() {
 	input := workflows.SweepInput{
 		Accounts: []workflows.SweepAccount{
 			{AccountID: "123456789012", Region: "us-east-1"},
@@ -121,7 +121,88 @@ func (s *SweepSuite) TestActivityError_ReturnsError() {
 
 	s.env.ExecuteWorkflow(workflows.AWSDocSweepWorkflow, input)
 	s.True(s.env.IsWorkflowCompleted())
-	s.Error(s.env.GetWorkflowError())
+	s.NoError(s.env.GetWorkflowError())
+
+	var result workflows.SweepResult
+	s.NoError(s.env.GetWorkflowResult(&result))
+	s.Equal(1, result.AccountsScanned)
+	s.Equal(1, result.ScanErrors)
+	s.Equal(0, result.WasteAnomalies)
+	s.Equal(0, result.ChildWorkflowsRun)
+}
+
+func (s *SweepSuite) TestMultipleAccounts_MixedResults() {
+	input := workflows.SweepInput{
+		Accounts: []workflows.SweepAccount{
+			{AccountID: "111111111111", Region: "us-east-1", Profile: "prod1"},
+			{AccountID: "222222222222", Region: "us-west-2", Profile: "prod2"},
+			{AccountID: "333333333333", Region: "eu-west-1", Profile: "prod3"},
+		},
+	}
+
+	// Account 1: waste above threshold -> spawns child
+	s.env.OnActivity("RunAWSDocWaste", testAnyCtx, testAnyInput).Return(activities.AWSDocWasteOutput{
+		Findings: []domain.WasteFinding{
+			{ResourceType: "EC2", ResourceID: "i-111", EstimatedMonthlySavings: 200.0},
+		},
+		TotalSavings: 200.0,
+	}, nil).Once()
+
+	// Account 2: waste below threshold -> no child
+	s.env.OnActivity("RunAWSDocWaste", testAnyCtx, testAnyInput).Return(activities.AWSDocWasteOutput{
+		Findings:     []domain.WasteFinding{{ResourceType: "ElasticIP", EstimatedMonthlySavings: 3.60}},
+		TotalSavings: 3.60,
+	}, nil).Once()
+
+	// Account 3: scan error -> logged and skipped
+	s.env.OnActivity("RunAWSDocWaste", testAnyCtx, testAnyInput).Return(
+		activities.AWSDocWasteOutput{}, fmt.Errorf("timeout")).Once()
+
+	// Child workflow for account 1
+	s.env.OnWorkflow(workflows.AnomalyLifecycleWorkflow, testAnyCtx, testAnyInput).Return(workflows.WorkflowResult{
+		Reason: workflows.ReasonCompleted,
+	}, nil)
+
+	s.env.ExecuteWorkflow(workflows.AWSDocSweepWorkflow, input)
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+
+	var result workflows.SweepResult
+	s.NoError(s.env.GetWorkflowResult(&result))
+	s.Equal(3, result.AccountsScanned)
+	s.Equal(1, result.WasteAnomalies)
+	s.Equal(1, result.ChildWorkflowsRun)
+	s.Equal(1, result.ScanErrors)
+}
+
+func (s *SweepSuite) TestChildWorkflowFailure_ContinuesCount() {
+	input := workflows.SweepInput{
+		Accounts: []workflows.SweepAccount{
+			{AccountID: "123456789012", Region: "us-east-1"},
+		},
+	}
+
+	s.env.OnActivity("RunAWSDocWaste", testAnyCtx, testAnyInput).Return(activities.AWSDocWasteOutput{
+		Findings: []domain.WasteFinding{
+			{ResourceType: "EC2", ResourceID: "i-abc", EstimatedMonthlySavings: 500.0},
+		},
+		TotalSavings: 500.0,
+	}, nil)
+
+	// Child workflow fails
+	s.env.OnWorkflow(workflows.AnomalyLifecycleWorkflow, testAnyCtx, testAnyInput).Return(
+		workflows.WorkflowResult{}, fmt.Errorf("child workflow error"))
+
+	s.env.ExecuteWorkflow(workflows.AWSDocSweepWorkflow, input)
+	s.True(s.env.IsWorkflowCompleted())
+	s.NoError(s.env.GetWorkflowError())
+
+	var result workflows.SweepResult
+	s.NoError(s.env.GetWorkflowResult(&result))
+	s.Equal(1, result.AccountsScanned)
+	s.Equal(1, result.WasteAnomalies)
+	// Child failed, so ChildWorkflowsRun should not be incremented
+	s.Equal(0, result.ChildWorkflowsRun)
 }
 
 func TestSweepSuite(t *testing.T) {

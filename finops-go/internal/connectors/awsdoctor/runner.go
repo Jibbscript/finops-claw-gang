@@ -187,6 +187,17 @@ func MapWasteFindings(report WasteReport, region string) []domain.WasteFinding {
 		})
 	}
 
+	for _, kp := range report.UnusedKeyPairs {
+		findings = append(findings, domain.WasteFinding{
+			ResourceType:            "KeyPair",
+			ResourceID:              kp.KeyPairID,
+			ResourceARN:             fmt.Sprintf("arn:aws:ec2:%s:%s:key-pair/%s", region, report.AccountID, kp.KeyPairID),
+			Reason:                  "unused SSH key pair (no running instances)",
+			EstimatedMonthlySavings: 0, // key pairs have no direct cost
+			Region:                  region,
+		})
+	}
+
 	return findings
 }
 

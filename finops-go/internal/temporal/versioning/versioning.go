@@ -9,9 +9,8 @@ const (
 
 	// Task queues. Phase 2 uses QueueAnomaly only; Phase 3 adds
 	// permission-isolated queues for detection and execution.
-	// Phase 4 adds QueueSweep for aws-doctor sweep workflows.
+	// AWSDocSweepWorkflow runs on QueueAnomaly alongside the lifecycle workflow.
 	QueueAnomaly = "finops-anomaly"
 	QueueDetect  = "finops-detect"
 	QueueExec    = "finops-exec"
-	QueueSweep   = "finops-sweep"
 )
