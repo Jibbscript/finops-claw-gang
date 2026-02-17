@@ -1,25 +1,62 @@
 // Command worker-finops runs the Temporal worker for FinOps workflows.
-// In Phase 2 it uses stub fixtures; Phase 3 replaces with real AWS connectors.
+// Supports stub mode (fixtures) and production mode (real AWS connectors).
 package main
 
 import (
+	"context"
 	"log"
-	"os"
 
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 
+	"github.com/finops-claw-gang/finops-go/internal/config"
+	"github.com/finops-claw-gang/finops-go/internal/connectors"
+	awsauth "github.com/finops-claw-gang/finops-go/internal/connectors/aws"
+	"github.com/finops-claw-gang/finops-go/internal/connectors/kubecost"
 	"github.com/finops-claw-gang/finops-go/internal/executor"
 	"github.com/finops-claw-gang/finops-go/internal/temporal/activities"
 	"github.com/finops-claw-gang/finops-go/internal/temporal/versioning"
 	"github.com/finops-claw-gang/finops-go/internal/temporal/workflows"
 	"github.com/finops-claw-gang/finops-go/internal/testutil"
+	"github.com/finops-claw-gang/finops-go/internal/triage"
 )
 
 func main() {
-	fixturesDir := os.Getenv("FIXTURES_DIR")
-	if fixturesDir == "" {
-		fixturesDir = testutil.GoldenDir()
+	cfg, err := config.LoadFromEnv()
+	if err != nil {
+		log.Fatalf("config: %v", err)
+	}
+
+	var (
+		cost     activities.CostDeps
+		infra    activities.InfraDeps
+		kubeCost triage.KubeCostQuerier
+	)
+
+	switch cfg.Mode {
+	case config.ModeProduction:
+		awsCfg, err := awsauth.NewAWSConfig(context.Background(), cfg.AWSRegion, cfg.AWSProfile, cfg.CrossAccountRole)
+		if err != nil {
+			log.Fatalf("aws config: %v", err)
+		}
+
+		cost = connectors.NewAWSCostClient(awsCfg, cfg.CURDatabase, cfg.CURTable, cfg.CURWorkgroup, cfg.CUROutputBucket)
+		infra = connectors.NewAWSInfraClient(awsCfg)
+
+		if cfg.KubeCostEndpoint != "" {
+			kubeCost = kubecost.New(cfg.KubeCostEndpoint)
+		} else {
+			kubeCost = &testutil.StubKubeCost{FixturesDir: testutil.GoldenDir()}
+		}
+
+	default: // stub mode
+		fixturesDir := cfg.FixturesDir
+		if fixturesDir == "" {
+			fixturesDir = testutil.GoldenDir()
+		}
+		cost = &testutil.StubCost{FixturesDir: fixturesDir}
+		infra = &testutil.StubInfra{FixturesDir: fixturesDir}
+		kubeCost = &testutil.StubKubeCost{FixturesDir: fixturesDir}
 	}
 
 	c, err := client.Dial(client.Options{})
@@ -28,15 +65,12 @@ func main() {
 	}
 	defer c.Close()
 
-	cost := &testutil.StubCost{FixturesDir: fixturesDir}
-	infra := &testutil.StubInfra{FixturesDir: fixturesDir}
-	kube := &testutil.StubKubeCost{FixturesDir: fixturesDir}
 	exec := executor.NewExecutor(infra)
 
 	acts := &activities.Activities{
 		Cost:     cost,
 		Infra:    infra,
-		KubeCost: kube,
+		KubeCost: kubeCost,
 		Executor: exec,
 	}
 
@@ -45,7 +79,7 @@ func main() {
 	w.RegisterWorkflow(workflows.ScheduledDetectionWorkflow)
 	w.RegisterActivity(acts)
 
-	log.Printf("starting worker on queue %s (fixtures=%s)", versioning.QueueAnomaly, fixturesDir)
+	log.Printf("starting worker on queue %s (mode=%s)", versioning.QueueAnomaly, cfg.Mode)
 	if err := w.Run(worker.InterruptCh()); err != nil {
 		log.Fatalf("worker failed: %v", err)
 	}

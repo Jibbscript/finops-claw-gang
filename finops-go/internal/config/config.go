@@ -1,0 +1,70 @@
+// Package config provides application configuration loaded from environment variables.
+package config
+
+import (
+	"fmt"
+	"os"
+)
+
+// Mode determines whether the worker uses stub fixtures or real AWS connectors.
+type Mode string
+
+const (
+	ModeStub       Mode = "stub"
+	ModeProduction Mode = "production"
+)
+
+// Config holds all application configuration.
+type Config struct {
+	Mode             Mode
+	FixturesDir      string
+	AWSRegion        string
+	AWSProfile       string
+	CrossAccountRole string
+	CURDatabase      string
+	CURTable         string
+	CURWorkgroup     string
+	CUROutputBucket  string
+	KubeCostEndpoint string
+}
+
+// LoadFromEnv reads configuration from environment variables with sensible defaults.
+func LoadFromEnv() (Config, error) {
+	cfg := Config{
+		Mode:             Mode(envOr("FINOPS_MODE", "stub")),
+		FixturesDir:      os.Getenv("FIXTURES_DIR"),
+		AWSRegion:        envOr("AWS_REGION", "us-east-1"),
+		AWSProfile:       os.Getenv("AWS_PROFILE"),
+		CrossAccountRole: os.Getenv("FINOPS_CROSS_ACCOUNT_ROLE"),
+		CURDatabase:      os.Getenv("FINOPS_CUR_DATABASE"),
+		CURTable:         os.Getenv("FINOPS_CUR_TABLE"),
+		CURWorkgroup:     envOr("FINOPS_CUR_WORKGROUP", "primary"),
+		CUROutputBucket:  os.Getenv("FINOPS_CUR_OUTPUT_BUCKET"),
+		KubeCostEndpoint: os.Getenv("FINOPS_KUBECOST_ENDPOINT"),
+	}
+
+	if cfg.Mode != ModeStub && cfg.Mode != ModeProduction {
+		return Config{}, fmt.Errorf("config: invalid FINOPS_MODE %q (must be stub or production)", cfg.Mode)
+	}
+
+	if cfg.Mode == ModeProduction {
+		if cfg.CURDatabase == "" {
+			return Config{}, fmt.Errorf("config: FINOPS_CUR_DATABASE required in production mode")
+		}
+		if cfg.CURTable == "" {
+			return Config{}, fmt.Errorf("config: FINOPS_CUR_TABLE required in production mode")
+		}
+		if cfg.CUROutputBucket == "" {
+			return Config{}, fmt.Errorf("config: FINOPS_CUR_OUTPUT_BUCKET required in production mode")
+		}
+	}
+
+	return cfg, nil
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
