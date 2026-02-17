@@ -3,7 +3,7 @@ package api
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -40,7 +40,7 @@ func logging(next http.Handler) http.Handler {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)
-		log.Printf("%s %s %d %s", r.Method, r.URL.Path, sw.status, time.Since(start))
+		slog.Info("request", "method", r.Method, "path", r.URL.Path, "status", sw.status, "duration", time.Since(start))
 	})
 }
 

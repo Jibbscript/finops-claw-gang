@@ -3,6 +3,8 @@
 package connectors
 
 import (
+	"context"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 
 	"github.com/finops-claw-gang/finops-go/internal/connectors/aws/athena"
@@ -10,15 +12,14 @@ import (
 	"github.com/finops-claw-gang/finops-go/internal/connectors/aws/codedeploy"
 	"github.com/finops-claw-gang/finops-go/internal/connectors/aws/costexplorer"
 	"github.com/finops-claw-gang/finops-go/internal/connectors/aws/tagging"
+	"github.com/finops-claw-gang/finops-go/internal/ratelimit"
 )
 
 // AWSCostClient satisfies activities.CostDeps by composing Cost Explorer and Athena clients.
-// Methods:
-//   - GetRICoverage, GetSPCoverage, GetCostTimeseries -> Cost Explorer
-//   - GetCURLineItems -> Athena
 type AWSCostClient struct {
-	ce  *costexplorer.Client
-	ath *athena.Querier
+	ce      *costexplorer.Client
+	ath     *athena.Querier
+	limiter *ratelimit.ServiceLimiter // nil = no limiting
 }
 
 // NewAWSCostClient creates an AWSCostClient from an AWS config and Athena CUR configuration.
@@ -29,31 +30,59 @@ func NewAWSCostClient(cfg aws.Config, curDatabase, curTable, curWorkgroup, curOu
 	}
 }
 
+// SetLimiter attaches a rate limiter to the client.
+func (c *AWSCostClient) SetLimiter(sl *ratelimit.ServiceLimiter) {
+	c.limiter = sl
+}
+
+func (c *AWSCostClient) waitCE() error {
+	if c.limiter != nil {
+		return c.limiter.Wait(context.Background(), "CostExplorer")
+	}
+	return nil
+}
+
+func (c *AWSCostClient) waitAthena() error {
+	if c.limiter != nil {
+		return c.limiter.Wait(context.Background(), "Athena")
+	}
+	return nil
+}
+
 func (c *AWSCostClient) GetRICoverage(accountID, startDate, endDate string) (map[string]any, error) {
+	if err := c.waitCE(); err != nil {
+		return nil, err
+	}
 	return c.ce.GetRICoverage(accountID, startDate, endDate)
 }
 
 func (c *AWSCostClient) GetSPCoverage(accountID, startDate, endDate string) (map[string]any, error) {
+	if err := c.waitCE(); err != nil {
+		return nil, err
+	}
 	return c.ce.GetSPCoverage(accountID, startDate, endDate)
 }
 
 func (c *AWSCostClient) GetCostTimeseries(service, accountID, startDate, endDate string) (map[string]any, error) {
+	if err := c.waitCE(); err != nil {
+		return nil, err
+	}
 	return c.ce.GetCostTimeseries(service, accountID, startDate, endDate)
 }
 
 func (c *AWSCostClient) GetCURLineItems(accountID, startDate, endDate, service string) ([]map[string]any, error) {
+	if err := c.waitAthena(); err != nil {
+		return nil, err
+	}
 	return c.ath.GetCURLineItems(accountID, startDate, endDate, service)
 }
 
 // AWSInfraClient satisfies activities.InfraDeps by composing CloudWatch, Tagging, and CodeDeploy clients.
-// Methods:
-//   - CloudWatchMetrics -> CloudWatch
-//   - ResourceTags -> Tagging
-//   - RecentDeploys -> CodeDeploy
 type AWSInfraClient struct {
-	cw *cloudwatch.Client
-	tg *tagging.Client
-	cd *codedeploy.Client
+	cw      *cloudwatch.Client
+	tg      *tagging.Client
+	cd      *codedeploy.Client
+	limiter *ratelimit.ServiceLimiter // nil = no limiting
 }
 
 // NewAWSInfraClient creates an AWSInfraClient from an AWS config.
@@ -65,11 +94,21 @@ func NewAWSInfraClient(cfg aws.Config) *AWSInfraClient {
 	}
 }
 
+// SetLimiter attaches a rate limiter to the client.
+func (c *AWSInfraClient) SetLimiter(sl *ratelimit.ServiceLimiter) {
+	c.limiter = sl
+}
+
 func (c *AWSInfraClient) RecentDeploys(service string) ([]map[string]any, error) {
 	return c.cd.RecentDeploys(service)
 }
 
 func (c *AWSInfraClient) CloudWatchMetrics(resourceID, metricName, namespace string) (map[string]any, error) {
+	if c.limiter != nil {
+		if err := c.limiter.Wait(context.Background(), "CloudWatch"); err != nil {
+			return nil, err
+		}
+	}
 	return c.cw.CloudWatchMetrics(resourceID, metricName, namespace)
 }
 

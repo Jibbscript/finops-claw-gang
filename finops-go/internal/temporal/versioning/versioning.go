@@ -4,6 +4,7 @@ package versioning
 const (
 	// Workflow versions for determinism tracking.
 	AnomalyLifecycleV1 = "anomaly-lifecycle-v1"
+	AnomalyLifecycleV2 = "anomaly-lifecycle-v2" // Phase 6: exec-queue-routing + tenant-context
 	DetectionV1        = "detection-v1"
 	AWSDocSweepV1      = "awsdoc-sweep-v1"
 

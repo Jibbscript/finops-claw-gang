@@ -5,7 +5,9 @@ import (
 	"fmt"
 
 	"github.com/finops-claw-gang/finops-go/internal/analysis"
+	"github.com/finops-claw-gang/finops-go/internal/domain"
 	"github.com/finops-claw-gang/finops-go/internal/executor"
+	"github.com/finops-claw-gang/finops-go/internal/ratelimit"
 	"github.com/finops-claw-gang/finops-go/internal/triage"
 	"github.com/finops-claw-gang/finops-go/internal/verifier"
 )
@@ -30,19 +32,69 @@ type AWSDocDeps interface {
 	triage.WasteQuerier
 }
 
+// TenantDeps provides per-tenant Cost and Infra clients.
+// Implemented by connectors.TenantClientFactory; defined here to avoid import cycles.
+type TenantDeps interface {
+	CostClient(ctx context.Context, tenant domain.TenantContext) (CostDeps, error)
+	InfraClient(ctx context.Context, tenant domain.TenantContext) (InfraDeps, error)
+}
+
 // Activities holds the dependencies for all Temporal activities.
 // Each method is registered as a Temporal activity.
+// When Tenants is non-nil, per-tenant clients are created dynamically;
+// otherwise the static Cost/Infra deps are used (stub mode backward compat).
 type Activities struct {
 	Cost     CostDeps
 	Infra    InfraDeps
 	KubeCost triage.KubeCostQuerier
 	AWSDoc   AWSDocDeps
 	Executor *executor.Executor
+	Tenants  TenantDeps              // nil in stub mode
+	Budget   *ratelimit.ActivityBudget // nil = no budget enforcement
+}
+
+// checkBudget enforces per-tenant activity budgets when configured.
+func (a *Activities) checkBudget(tenantID, activityName string) error {
+	if a.Budget == nil {
+		return nil
+	}
+	if err := a.Budget.Check(tenantID, activityName); err != nil {
+		return err
+	}
+	a.Budget.Record(tenantID, activityName)
+	return nil
+}
+
+// resolveCost returns per-tenant cost client if available, otherwise the static one.
+func (a *Activities) resolveCost(ctx context.Context, tenant domain.TenantContext) (CostDeps, error) {
+	if a.Tenants != nil && tenant.IAMRoleARN != "" {
+		return a.Tenants.CostClient(ctx, tenant)
+	}
+	return a.Cost, nil
+}
+
+// resolveInfra returns per-tenant infra client if available, otherwise the static one.
+func (a *Activities) resolveInfra(ctx context.Context, tenant domain.TenantContext) (InfraDeps, error) {
+	if a.Tenants != nil && tenant.IAMRoleARN != "" {
+		return a.Tenants.InfraClient(ctx, tenant)
+	}
+	return a.Infra, nil
 }
 
 // TriageAnomaly classifies a cost anomaly using deterministic evidence checks.
 func (a *Activities) TriageAnomaly(ctx context.Context, in TriageInput) (TriageOutput, error) {
-	result, err := triage.Triage(ctx, in.Anomaly, a.Cost, a.Infra, a.KubeCost, a.AWSDoc, in.WindowStart, in.WindowEnd)
+	if err := a.checkBudget(in.Tenant.TenantID, "TriageAnomaly"); err != nil {
+		return TriageOutput{}, err
+	}
+	cost, err := a.resolveCost(ctx, in.Tenant)
+	if err != nil {
+		return TriageOutput{}, fmt.Errorf("triage activity: resolve cost: %w", err)
+	}
+	infra, err := a.resolveInfra(ctx, in.Tenant)
+	if err != nil {
+		return TriageOutput{}, fmt.Errorf("triage activity: resolve infra: %w", err)
+	}
+	result, err := triage.Triage(ctx, in.Anomaly, cost, infra, a.KubeCost, a.AWSDoc, in.WindowStart, in.WindowEnd)
 	if err != nil {
 		return TriageOutput{}, fmt.Errorf("triage activity: %w", err)
 	}
@@ -50,8 +102,15 @@ func (a *Activities) TriageAnomaly(ctx context.Context, in TriageInput) (TriageO
 }
 
 // PlanActions runs the deterministic analysis planner and returns recommended actions.
-func (a *Activities) PlanActions(_ context.Context, in PlanActionsInput) (PlanActionsOutput, error) {
-	result, err := analysis.AnalyzeAndRecommend(in.AccountID, in.Service, in.WindowStart, in.WindowEnd, a.Cost)
+func (a *Activities) PlanActions(ctx context.Context, in PlanActionsInput) (PlanActionsOutput, error) {
+	if err := a.checkBudget(in.Tenant.TenantID, "PlanActions"); err != nil {
+		return PlanActionsOutput{}, err
+	}
+	cost, err := a.resolveCost(ctx, in.Tenant)
+	if err != nil {
+		return PlanActionsOutput{}, fmt.Errorf("plan actions activity: resolve cost: %w", err)
+	}
+	result, err := analysis.AnalyzeAndRecommend(in.AccountID, in.Service, in.WindowStart, in.WindowEnd, cost)
 	if err != nil {
 		return PlanActionsOutput{}, fmt.Errorf("plan actions activity: %w", err)
 	}
@@ -60,14 +119,21 @@ func (a *Activities) PlanActions(_ context.Context, in PlanActionsInput) (PlanAc
 
 // ExecuteActions gathers resource tags and runs the executor.
 // Tags are fetched inside the activity boundary (I/O belongs here, not in the workflow).
-func (a *Activities) ExecuteActions(_ context.Context, in ExecuteActionsInput) (ExecuteActionsOutput, error) {
-	// Build resource tags map from the actions' target resources.
+func (a *Activities) ExecuteActions(ctx context.Context, in ExecuteActionsInput) (ExecuteActionsOutput, error) {
+	if err := a.checkBudget(in.Tenant.TenantID, "ExecuteActions"); err != nil {
+		return ExecuteActionsOutput{}, err
+	}
+	infra, err := a.resolveInfra(ctx, in.Tenant)
+	if err != nil {
+		return ExecuteActionsOutput{}, fmt.Errorf("execute activity: resolve infra: %w", err)
+	}
+
 	tagsByARN := make(map[string]map[string]string)
 	for _, action := range in.Actions {
 		if action.TargetResource == "" {
 			continue
 		}
-		tags, err := a.Infra.ResourceTags(action.TargetResource)
+		tags, err := infra.ResourceTags(action.TargetResource)
 		if err != nil {
 			return ExecuteActionsOutput{}, fmt.Errorf("execute activity: fetch tags for %s: %w", action.TargetResource, err)
 		}
@@ -82,8 +148,15 @@ func (a *Activities) ExecuteActions(_ context.Context, in ExecuteActionsInput) (
 }
 
 // VerifyOutcome checks service health and observed cost reduction.
-func (a *Activities) VerifyOutcome(_ context.Context, in VerifyOutcomeInput) (VerifyOutcomeOutput, error) {
-	result, err := verifier.Verify(in.Service, in.AccountID, a.Cost, in.WindowStart, in.WindowEnd)
+func (a *Activities) VerifyOutcome(ctx context.Context, in VerifyOutcomeInput) (VerifyOutcomeOutput, error) {
+	if err := a.checkBudget(in.Tenant.TenantID, "VerifyOutcome"); err != nil {
+		return VerifyOutcomeOutput{}, err
+	}
+	cost, err := a.resolveCost(ctx, in.Tenant)
+	if err != nil {
+		return VerifyOutcomeOutput{}, fmt.Errorf("verify activity: resolve cost: %w", err)
+	}
+	result, err := verifier.Verify(in.Service, in.AccountID, cost, in.WindowStart, in.WindowEnd)
 	if err != nil {
 		return VerifyOutcomeOutput{}, fmt.Errorf("verify activity: %w", err)
 	}

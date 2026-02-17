@@ -44,7 +44,7 @@ func (s *stubQuerier) SubmitApproval(_ context.Context, _ string, _ activities.A
 }
 
 func newTestServer(q querier.WorkflowQuerier) *httptest.Server {
-	srv := api.New(q, []string{"*"})
+	srv := api.New(q, []string{"*"}, api.OIDCConfig{})
 	return httptest.NewServer(srv)
 }
 

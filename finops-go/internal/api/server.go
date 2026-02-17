@@ -1,7 +1,11 @@
 package api
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
+
+	"github.com/coreos/go-oidc/v3/oidc"
 
 	"github.com/finops-claw-gang/finops-go/internal/agui"
 	"github.com/finops-claw-gang/finops-go/internal/temporal/querier"
@@ -14,11 +18,27 @@ type Server struct {
 	handler http.Handler
 }
 
-// New creates a Server with the given querier and CORS origins.
-func New(q querier.WorkflowQuerier, corsOrigins []string) *Server {
+// New creates a Server with the given querier, CORS origins, and optional OIDC config.
+func New(q querier.WorkflowQuerier, corsOrigins []string, oidcCfg OIDCConfig) *Server {
 	s := &Server{querier: q, mux: http.NewServeMux()}
 	s.routes()
-	s.handler = requestID(logging(cors(corsOrigins, s.mux)))
+
+	var handler http.Handler = s.mux
+	handler = cors(corsOrigins, handler)
+	handler = logging(handler)
+	handler = requestID(handler)
+
+	if oidcCfg.Enabled {
+		provider, err := oidc.NewProvider(context.Background(), oidcCfg.IssuerURL)
+		if err != nil {
+			slog.Error("OIDC provider init failed, starting without auth", "error", err, "issuer", oidcCfg.IssuerURL)
+		} else {
+			handler = oidcAuth(provider, oidcCfg.Audience)(handler)
+			slog.Info("OIDC authentication enabled", "issuer", oidcCfg.IssuerURL)
+		}
+	}
+
+	s.handler = handler
 	return s
 }
 
