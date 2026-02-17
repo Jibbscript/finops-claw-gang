@@ -4,6 +4,7 @@ package connectors
 
 import (
 	"context"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
@@ -14,6 +15,11 @@ import (
 	"github.com/finops-claw-gang/finops-go/internal/connectors/aws/tagging"
 	"github.com/finops-claw-gang/finops-go/internal/ratelimit"
 )
+
+// rateLimitTimeout is a safety net for rate limiter waits.
+// The interface methods don't carry context, so we use a fixed timeout
+// to prevent indefinite blocking if the limiter is severely constrained.
+const rateLimitTimeout = 30 * time.Second
 
 // AWSCostClient satisfies activities.CostDeps by composing Cost Explorer and Athena clients.
 type AWSCostClient struct {
@@ -37,14 +43,18 @@ func (c *AWSCostClient) SetLimiter(sl *ratelimit.ServiceLimiter) {
 
 func (c *AWSCostClient) waitCE() error {
 	if c.limiter != nil {
-		return c.limiter.Wait(context.Background(), "CostExplorer")
+		ctx, cancel := context.WithTimeout(context.Background(), rateLimitTimeout)
+		defer cancel()
+		return c.limiter.Wait(ctx, "CostExplorer")
 	}
 	return nil
 }
 
 func (c *AWSCostClient) waitAthena() error {
 	if c.limiter != nil {
-		return c.limiter.Wait(context.Background(), "Athena")
+		ctx, cancel := context.WithTimeout(context.Background(), rateLimitTimeout)
+		defer cancel()
+		return c.limiter.Wait(ctx, "Athena")
 	}
 	return nil
 }
@@ -105,7 +115,9 @@ func (c *AWSInfraClient) RecentDeploys(service string) ([]map[string]any, error)
 
 func (c *AWSInfraClient) CloudWatchMetrics(resourceID, metricName, namespace string) (map[string]any, error) {
 	if c.limiter != nil {
-		if err := c.limiter.Wait(context.Background(), "CloudWatch"); err != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), rateLimitTimeout)
+		defer cancel()
+		if err := c.limiter.Wait(ctx, "CloudWatch"); err != nil {
 			return nil, err
 		}
 	}

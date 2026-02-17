@@ -10,6 +10,7 @@ import (
 )
 
 func TestDefaultConfigs(t *testing.T) {
+	t.Parallel()
 	configs := DefaultConfigs()
 	assert.Len(t, configs, 3)
 	assert.Contains(t, configs, versioning.QueueAnomaly)
@@ -22,6 +23,7 @@ func TestDefaultConfigs(t *testing.T) {
 }
 
 func TestParseQueues(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name    string
 		raw     string
@@ -40,6 +42,7 @@ func TestParseQueues(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := ParseQueues(tt.raw)
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)

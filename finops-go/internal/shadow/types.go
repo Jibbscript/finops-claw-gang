@@ -3,9 +3,9 @@ package shadow
 
 // ComparisonResult is the top-level output of a shadow-run comparison.
 type ComparisonResult struct {
-	Phases    []PhaseComparison `json:"phases"`
-	AllMatch  bool              `json:"all_match"`
-	Summary   string            `json:"summary"`
+	Phases   []PhaseComparison `json:"phases"`
+	AllMatch bool              `json:"all_match"`
+	Summary  string            `json:"summary"`
 }
 
 // PhaseComparison records the comparison for a single pipeline phase.

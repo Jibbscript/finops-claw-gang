@@ -51,7 +51,11 @@ func main() {
 		Audience:  cfg.OIDCAudience,
 		Enabled:   cfg.OIDCEnabled(),
 	}
-	srv := api.New(q, cfg.CORSOrigins, oidcCfg)
+	srv, err := api.New(q, cfg.CORSOrigins, oidcCfg)
+	if err != nil {
+		logger.Error("api server init failed", "error", err)
+		os.Exit(1)
+	}
 
 	var handler http.Handler = srv
 	if cfg.OTelEnabled {

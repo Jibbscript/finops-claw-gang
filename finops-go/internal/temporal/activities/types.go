@@ -35,9 +35,9 @@ type PlanActionsOutput struct {
 // ExecuteActionsInput is the activity input for action execution.
 // Tags are fetched inside the activity boundary, not passed in.
 type ExecuteActionsInput struct {
-	Tenant   domain.TenantContext        `json:"tenant,omitempty"`
-	Approval domain.ApprovalStatus       `json:"approval"`
-	Actions  []domain.RecommendedAction  `json:"actions"`
+	Tenant   domain.TenantContext       `json:"tenant,omitempty"`
+	Approval domain.ApprovalStatus      `json:"approval"`
+	Actions  []domain.RecommendedAction `json:"actions"`
 }
 
 // ExecuteActionsOutput is the activity output from action execution.

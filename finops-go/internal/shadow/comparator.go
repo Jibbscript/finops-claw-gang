@@ -21,8 +21,8 @@ func Compare(goJSON, pyJSON []byte) (*ComparisonResult, error) {
 	allMatch := true
 
 	for _, phase := range phases {
-		goVal, _ := json.MarshalIndent(goState[phase], "", "  ")
-		pyVal, _ := json.MarshalIndent(pyState[phase], "", "  ")
+		goVal, _ := json.MarshalIndent(goState[phase], "", "  ") // safe: values came from Unmarshal
+		pyVal, _ := json.MarshalIndent(pyState[phase], "", "  ") // safe: values came from Unmarshal
 
 		match := string(goVal) == string(pyVal)
 		if !match {

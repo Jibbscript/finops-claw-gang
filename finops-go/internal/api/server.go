@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
 
@@ -19,7 +21,8 @@ type Server struct {
 }
 
 // New creates a Server with the given querier, CORS origins, and optional OIDC config.
-func New(q querier.WorkflowQuerier, corsOrigins []string, oidcCfg OIDCConfig) *Server {
+// Returns an error if OIDC is enabled but the provider cannot be reached.
+func New(q querier.WorkflowQuerier, corsOrigins []string, oidcCfg OIDCConfig) (*Server, error) {
 	s := &Server{querier: q, mux: http.NewServeMux()}
 	s.routes()
 
@@ -29,17 +32,18 @@ func New(q querier.WorkflowQuerier, corsOrigins []string, oidcCfg OIDCConfig) *S
 	handler = requestID(handler)
 
 	if oidcCfg.Enabled {
-		provider, err := oidc.NewProvider(context.Background(), oidcCfg.IssuerURL)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		provider, err := oidc.NewProvider(ctx, oidcCfg.IssuerURL)
 		if err != nil {
-			slog.Error("OIDC provider init failed, starting without auth", "error", err, "issuer", oidcCfg.IssuerURL)
-		} else {
-			handler = oidcAuth(provider, oidcCfg.Audience)(handler)
-			slog.Info("OIDC authentication enabled", "issuer", oidcCfg.IssuerURL)
+			return nil, fmt.Errorf("oidc provider %s: %w", oidcCfg.IssuerURL, err)
 		}
+		handler = oidcAuth(provider, oidcCfg.Audience)(handler)
+		slog.Info("OIDC authentication enabled", "issuer", oidcCfg.IssuerURL)
 	}
 
 	s.handler = handler
-	return s
+	return s, nil
 }
 
 // ServeHTTP implements http.Handler.

@@ -9,20 +9,22 @@ import (
 )
 
 func TestValidateRoleARN(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		arn     string
 		wantErr bool
 	}{
 		{"arn:aws:iam::123456789012:role/MyRole", false},
 		{"arn:aws:iam::123456789012:role/path/MyRole", false},
-		{"arn:aws:iam::12345:role/Short", true},              // too few digits
-		{"arn:aws:iam::123456789012:user/NotARole", true},    // user, not role
+		{"arn:aws:iam::12345:role/Short", true},           // too few digits
+		{"arn:aws:iam::123456789012:user/NotARole", true}, // user, not role
 		{"", true},
 		{"not-an-arn", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.arn, func(t *testing.T) {
+			t.Parallel()
 			err := ValidateRoleARN(tt.arn)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -51,6 +53,7 @@ func TestTenantConfigProvider_CacheHit(t *testing.T) {
 }
 
 func TestTenantConfigProvider_InvalidARN(t *testing.T) {
+	t.Parallel()
 	p := NewTenantConfigProvider("us-east-1", "")
 	_, err := p.ForTenant(t.Context(), "tenant-1", "invalid-arn", "")
 	assert.Error(t, err)

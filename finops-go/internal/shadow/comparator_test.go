@@ -8,6 +8,7 @@ import (
 )
 
 func TestCompare_AllMatch(t *testing.T) {
+	t.Parallel()
 	data := []byte(`{"triage":{"category":"deploy_related"},"analysis":{"confidence":0.4},"approval":{"status":"auto_approved"}}`)
 
 	result, err := Compare(data, data)
@@ -22,6 +23,7 @@ func TestCompare_AllMatch(t *testing.T) {
 }
 
 func TestCompare_TriageDivergence(t *testing.T) {
+	t.Parallel()
 	goJSON := []byte(`{"triage":{"category":"deploy_related"},"analysis":{"confidence":0.4},"approval":{"status":"auto_approved"}}`)
 	pyJSON := []byte(`{"triage":{"category":"expected_growth"},"analysis":{"confidence":0.4},"approval":{"status":"auto_approved"}}`)
 
@@ -42,6 +44,7 @@ func TestCompare_TriageDivergence(t *testing.T) {
 }
 
 func TestCompare_MultiplePhasesDivergent(t *testing.T) {
+	t.Parallel()
 	goJSON := []byte(`{"triage":{"category":"a"},"analysis":{"confidence":0.4},"approval":{"status":"approved"}}`)
 	pyJSON := []byte(`{"triage":{"category":"b"},"analysis":{"confidence":0.9},"approval":{"status":"denied"}}`)
 
@@ -54,6 +57,7 @@ func TestCompare_MultiplePhasesDivergent(t *testing.T) {
 }
 
 func TestCompare_MissingPhase(t *testing.T) {
+	t.Parallel()
 	goJSON := []byte(`{"triage":{"category":"a"}}`)
 	pyJSON := []byte(`{"triage":{"category":"a"},"analysis":{"confidence":0.5}}`)
 
@@ -65,6 +69,7 @@ func TestCompare_MissingPhase(t *testing.T) {
 }
 
 func TestCompare_InvalidJSON(t *testing.T) {
+	t.Parallel()
 	_, err := Compare([]byte("not json"), []byte(`{}`))
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "parse Go output")
@@ -75,6 +80,7 @@ func TestCompare_InvalidJSON(t *testing.T) {
 }
 
 func TestSimpleDiff(t *testing.T) {
+	t.Parallel()
 	a := "line1\nline2\nline3"
 	b := "line1\nchanged\nline3"
 
@@ -87,6 +93,7 @@ func TestSimpleDiff(t *testing.T) {
 }
 
 func TestSimpleDiff_DifferentLengths(t *testing.T) {
+	t.Parallel()
 	a := "line1\nline2"
 	b := "line1\nline2\nline3"
 

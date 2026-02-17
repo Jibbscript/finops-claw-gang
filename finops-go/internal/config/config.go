@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -124,6 +125,7 @@ func envFloat(key string, fallback float64) float64 {
 	}
 	f, err := strconv.ParseFloat(v, 64)
 	if err != nil {
+		slog.Warn("ignoring invalid env var", "key", key, "value", v, "fallback", fallback)
 		return fallback
 	}
 	return f

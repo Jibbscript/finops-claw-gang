@@ -49,7 +49,7 @@ type Activities struct {
 	KubeCost triage.KubeCostQuerier
 	AWSDoc   AWSDocDeps
 	Executor *executor.Executor
-	Tenants  TenantDeps              // nil in stub mode
+	Tenants  TenantDeps                // nil in stub mode
 	Budget   *ratelimit.ActivityBudget // nil = no budget enforcement
 }
 

@@ -26,6 +26,8 @@ func (r *GoRunner) Run(ctx context.Context, service string, delta float64) ([]by
 	kubecost := &testutil.StubKubeCost{FixturesDir: r.FixturesDir}
 	waste := &testutil.StubAWSDoctor{FixturesDir: r.FixturesDir}
 
+	// These defaults match the Python CLI's stub-mode defaults
+	// (cli.py --fixtures mode). Keep in sync when updating the Python side.
 	anomaly := domain.CostAnomaly{
 		AnomalyID:         "shadow-run",
 		Service:           service,

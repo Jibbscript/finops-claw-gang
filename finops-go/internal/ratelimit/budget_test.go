@@ -9,6 +9,7 @@ import (
 )
 
 func TestActivityBudget_UnderLimit(t *testing.T) {
+	t.Parallel()
 	b := NewActivityBudget(5, time.Minute)
 
 	err := b.Check("tenant-1", "TriageAnomaly")
@@ -22,6 +23,7 @@ func TestActivityBudget_UnderLimit(t *testing.T) {
 }
 
 func TestActivityBudget_ExceedsLimit(t *testing.T) {
+	t.Parallel()
 	b := NewActivityBudget(2, time.Minute)
 
 	b.Record("tenant-1", "TriageAnomaly")
@@ -33,6 +35,7 @@ func TestActivityBudget_ExceedsLimit(t *testing.T) {
 }
 
 func TestActivityBudget_WindowReset(t *testing.T) {
+	t.Parallel()
 	b := NewActivityBudget(2, time.Minute)
 
 	now := time.Now()
@@ -50,6 +53,7 @@ func TestActivityBudget_WindowReset(t *testing.T) {
 }
 
 func TestActivityBudget_DifferentTenants(t *testing.T) {
+	t.Parallel()
 	b := NewActivityBudget(1, time.Minute)
 
 	b.Record("tenant-1", "TriageAnomaly")

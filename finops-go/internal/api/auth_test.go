@@ -27,14 +27,18 @@ func testOIDCServer(t *testing.T, key *rsa.PrivateKey) *httptest.Server {
 
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
+		if err := json.NewEncoder(w).Encode(map[string]string{
 			"issuer":   issuerURL,
 			"jwks_uri": issuerURL + "/jwks",
-		})
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	})
 	mux.HandleFunc("/jwks", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(jwks)
+		if err := json.NewEncoder(w).Encode(jwks); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	})
 
 	ts := httptest.NewServer(mux)
@@ -81,112 +85,98 @@ func setupAuthMiddleware(t *testing.T) authTestEnv {
 // echoHandler returns a handler that writes tenant/user info from context.
 func echoHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{
+		if err := json.NewEncoder(w).Encode(map[string]string{
 			"tenant_id": TenantFromContext(r.Context()),
 			"user_id":   UserFromContext(r.Context()),
-		})
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	})
 }
 
-func TestOIDCAuth_ValidToken(t *testing.T) {
+func TestOIDCAuth(t *testing.T) {
 	env := setupAuthMiddleware(t)
 	handler := env.middleware(echoHandler())
 
-	claims := map[string]any{
-		"iss":       env.issuerURL,
-		"aud":       "test-audience",
-		"sub":       "user-123",
-		"tenant_id": "tenant-abc",
-		"exp":       time.Now().Add(time.Hour).Unix(),
-		"iat":       time.Now().Unix(),
+	now := time.Now()
+	validToken := signJWT(t, env.key, map[string]any{
+		"iss": env.issuerURL, "aud": "test-audience",
+		"sub": "user-123", "tenant_id": "tenant-abc",
+		"exp": now.Add(time.Hour).Unix(), "iat": now.Unix(),
+	})
+	expiredToken := signJWT(t, env.key, map[string]any{
+		"iss": env.issuerURL, "aud": "test-audience", "sub": "user-123",
+		"exp": now.Add(-time.Hour).Unix(), "iat": now.Add(-2 * time.Hour).Unix(),
+	})
+	wrongAudienceToken := signJWT(t, env.key, map[string]any{
+		"iss": env.issuerURL, "aud": "wrong-audience", "sub": "user-123",
+		"exp": now.Add(time.Hour).Unix(), "iat": now.Unix(),
+	})
+
+	tests := []struct {
+		name       string
+		path       string
+		authHeader string
+		wantStatus int
+		wantBody   map[string]string // nil = don't check body
+	}{
+		{
+			name:       "valid token",
+			path:       "/api/v1/workflows",
+			authHeader: "Bearer " + validToken,
+			wantStatus: http.StatusOK,
+			wantBody:   map[string]string{"tenant_id": "tenant-abc", "user_id": "user-123"},
+		},
+		{
+			name:       "missing header",
+			path:       "/api/v1/workflows",
+			authHeader: "",
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "expired token",
+			path:       "/api/v1/workflows",
+			authHeader: "Bearer " + expiredToken,
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "wrong audience",
+			path:       "/api/v1/workflows",
+			authHeader: "Bearer " + wrongAudienceToken,
+			wantStatus: http.StatusUnauthorized,
+		},
+		{
+			name:       "health bypasses auth",
+			path:       "/api/v1/health",
+			authHeader: "",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "invalid format (Basic auth)",
+			path:       "/api/v1/workflows",
+			authHeader: "Basic dXNlcjpwYXNz",
+			wantStatus: http.StatusUnauthorized,
+		},
 	}
-	token := signJWT(t, env.key, claims)
 
-	req := httptest.NewRequest("GET", "/api/v1/workflows", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", tt.path, nil)
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
+			}
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, tt.wantStatus, w.Code)
 
-	var body map[string]string
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "tenant-abc", body["tenant_id"])
-	assert.Equal(t, "user-123", body["user_id"])
-}
-
-func TestOIDCAuth_MissingHeader(t *testing.T) {
-	env := setupAuthMiddleware(t)
-	handler := env.middleware(echoHandler())
-
-	req := httptest.NewRequest("GET", "/api/v1/workflows", nil)
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestOIDCAuth_ExpiredToken(t *testing.T) {
-	env := setupAuthMiddleware(t)
-	handler := env.middleware(echoHandler())
-
-	claims := map[string]any{
-		"iss": env.issuerURL,
-		"aud": "test-audience",
-		"sub": "user-123",
-		"exp": time.Now().Add(-time.Hour).Unix(),
-		"iat": time.Now().Add(-2 * time.Hour).Unix(),
+			if tt.wantBody != nil {
+				var body map[string]string
+				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+				for k, v := range tt.wantBody {
+					assert.Equal(t, v, body[k], "body[%s]", k)
+				}
+			}
+		})
 	}
-	token := signJWT(t, env.key, claims)
-
-	req := httptest.NewRequest("GET", "/api/v1/workflows", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestOIDCAuth_WrongAudience(t *testing.T) {
-	env := setupAuthMiddleware(t)
-	handler := env.middleware(echoHandler())
-
-	claims := map[string]any{
-		"iss": env.issuerURL,
-		"aud": "wrong-audience",
-		"sub": "user-123",
-		"exp": time.Now().Add(time.Hour).Unix(),
-		"iat": time.Now().Unix(),
-	}
-	token := signJWT(t, env.key, claims)
-
-	req := httptest.NewRequest("GET", "/api/v1/workflows", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestOIDCAuth_HealthBypassesAuth(t *testing.T) {
-	env := setupAuthMiddleware(t)
-	handler := env.middleware(echoHandler())
-
-	req := httptest.NewRequest("GET", "/api/v1/health", nil)
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-}
-
-func TestOIDCAuth_InvalidFormat(t *testing.T) {
-	env := setupAuthMiddleware(t)
-	handler := env.middleware(echoHandler())
-
-	req := httptest.NewRequest("GET", "/api/v1/workflows", nil)
-	req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
