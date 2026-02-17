@@ -53,6 +53,16 @@ func NewCostAnomaly() CostAnomaly {
 	}
 }
 
+// WasteFinding represents a single resource waste finding from aws-doctor.
+type WasteFinding struct {
+	ResourceType            string  `json:"resource_type"`
+	ResourceID              string  `json:"resource_id"`
+	ResourceARN             string  `json:"resource_arn"`
+	Reason                  string  `json:"reason"`
+	EstimatedMonthlySavings float64 `json:"estimated_monthly_savings"`
+	Region                  string  `json:"region"`
+}
+
 // TriageEvidence holds correlation evidence collected during triage.
 type TriageEvidence struct {
 	DeployCorrelation []string `json:"deploy_correlation"`
@@ -67,6 +77,11 @@ type TriageEvidence struct {
 	MarketplaceDelta   *float64           `json:"marketplace_delta"`
 	DataTransferDelta  *float64           `json:"data_transfer_delta"`
 	K8sNamespaceDeltas map[string]float64 `json:"k8s_namespace_deltas"`
+
+	WasteFindings    []WasteFinding `json:"waste_findings,omitempty"`
+	WasteSavings     *float64       `json:"waste_savings,omitempty"`
+	TrendVelocityPct *float64       `json:"trend_velocity_pct,omitempty"`
+	TrendDirection   string         `json:"trend_direction,omitempty"`
 }
 
 // TriageResult is the output of the triage classifier.

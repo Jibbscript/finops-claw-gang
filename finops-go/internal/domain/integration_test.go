@@ -1,6 +1,7 @@
 package domain_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/finops-claw-gang/finops-go/internal/analysis"
@@ -39,7 +40,7 @@ func TestEndToEndPipeline(t *testing.T) {
 	}
 
 	// 2. Triage
-	triageResult, err := triage.Triage(anomaly, cost, infra, kube, "", "")
+	triageResult, err := triage.Triage(context.Background(), anomaly, cost, infra, kube, nil, "", "")
 	if err != nil {
 		t.Fatalf("triage: %v", err)
 	}

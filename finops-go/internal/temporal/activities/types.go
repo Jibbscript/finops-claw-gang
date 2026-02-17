@@ -80,3 +80,28 @@ type ApprovalResponse struct {
 	By       string `json:"by"`
 	Reason   string `json:"reason,omitempty"`
 }
+
+// AWSDocWasteInput is the activity input for aws-doctor waste scans.
+type AWSDocWasteInput struct {
+	AccountID string `json:"account_id"`
+	Region    string `json:"region"`
+	Profile   string `json:"profile"`
+}
+
+// AWSDocWasteOutput is the activity output from aws-doctor waste scans.
+type AWSDocWasteOutput struct {
+	Findings     []domain.WasteFinding `json:"findings"`
+	TotalSavings float64               `json:"total_savings"`
+}
+
+// AWSDocTrendInput is the activity input for aws-doctor trend analysis.
+type AWSDocTrendInput struct {
+	Profile string `json:"profile"`
+	Region  string `json:"region"`
+}
+
+// AWSDocTrendOutput is the activity output from aws-doctor trend analysis.
+type AWSDocTrendOutput struct {
+	TrendDirection string  `json:"trend_direction"`
+	VelocityPct    float64 `json:"velocity_pct"`
+}
