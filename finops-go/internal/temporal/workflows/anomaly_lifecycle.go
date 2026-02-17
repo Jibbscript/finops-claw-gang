@@ -16,6 +16,9 @@ import (
 // UpdateNameApproval is the Temporal Update handler name for HIL.
 const UpdateNameApproval = "approval"
 
+// QueryNameState is the Temporal Query handler name for reading workflow state.
+const QueryNameState = "state"
+
 // HILTimeout is how long the workflow waits for human approval.
 const HILTimeout = 24 * time.Hour
 
@@ -62,6 +65,13 @@ type WorkflowResult struct {
 func AnomalyLifecycleWorkflow(ctx workflow.Context, input WorkflowInput) (WorkflowResult, error) {
 	logger := workflow.GetLogger(ctx)
 	state := domain.NewFinOpsState(input.Tenant)
+
+	// Register Query handler before any blocking call (determinism-safe).
+	if err := workflow.SetQueryHandler(ctx, QueryNameState, func() (WorkflowResult, error) {
+		return WorkflowResult{State: state, Reason: ""}, nil
+	}); err != nil {
+		return WorkflowResult{}, fmt.Errorf("register state query: %w", err)
+	}
 
 	// Activity options: generous timeout, no retry by default (safety first).
 	actOpts := workflow.ActivityOptions{

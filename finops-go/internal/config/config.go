@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 )
 
 // Mode determines whether the worker uses stub fixtures or real AWS connectors.
@@ -26,6 +27,10 @@ type Config struct {
 	CURWorkgroup     string
 	CUROutputBucket  string
 	KubeCostEndpoint string
+
+	// API server settings.
+	APIPort     string
+	CORSOrigins []string
 	AWSDocBinaryPath string
 	SweepAccounts    string
 }
@@ -43,6 +48,8 @@ func LoadFromEnv() (Config, error) {
 		CURWorkgroup:     envOr("FINOPS_CUR_WORKGROUP", "primary"),
 		CUROutputBucket:  os.Getenv("FINOPS_CUR_OUTPUT_BUCKET"),
 		KubeCostEndpoint: os.Getenv("FINOPS_KUBECOST_ENDPOINT"),
+		APIPort:          envOr("FINOPS_API_PORT", "8080"),
+		CORSOrigins:      parseCORSOrigins(os.Getenv("FINOPS_CORS_ORIGINS")),
 		AWSDocBinaryPath: envOr("FINOPS_AWSDOC_BINARY", "aws-doctor"),
 		SweepAccounts:    os.Getenv("FINOPS_SWEEP_ACCOUNTS"),
 	}
@@ -71,4 +78,20 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func parseCORSOrigins(raw string) []string {
+	if raw == "" {
+		return []string{"*"}
+	}
+	var origins []string
+	for _, o := range strings.Split(raw, ",") {
+		if t := strings.TrimSpace(o); t != "" {
+			origins = append(origins, t)
+		}
+	}
+	if len(origins) == 0 {
+		return []string{"*"}
+	}
+	return origins
 }
