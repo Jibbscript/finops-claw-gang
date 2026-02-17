@@ -45,3 +45,83 @@ func AnalyzeAndRecommend(
 		Confidence:              0.4,
 	}, nil
 }
+
+// wasteActionType maps a waste finding resource type to an action type.
+var wasteActionType = map[string]string{
+	"EC2":          "terminate_instance",
+	"EBS":          "delete_volume",
+	"Snapshot":     "delete_snapshot",
+	"ElasticIP":    "release_elastic_ip",
+	"LoadBalancer": "delete_load_balancer",
+	"AMI":          "deregister_ami",
+}
+
+// wasteRiskLevel maps a waste finding resource type to its risk level.
+var wasteRiskLevel = map[string]domain.ActionRiskLevel{
+	"EC2":          domain.RiskLow,    // stopped instances — low risk to terminate
+	"EBS":          domain.RiskMedium, // volumes may contain data
+	"Snapshot":     domain.RiskMedium, // snapshots may be the only backup
+	"ElasticIP":    domain.RiskLow,
+	"LoadBalancer": domain.RiskMedium,
+	"AMI":          domain.RiskLow,
+}
+
+// wasteRollback maps a waste finding resource type to a rollback recipe.
+var wasteRollback = map[string]string{
+	"EC2":          "launch replacement from AMI or backup",
+	"EBS":          "restore volume from snapshot",
+	"Snapshot":     "no rollback — snapshot data is permanently lost",
+	"ElasticIP":    "allocate new Elastic IP and update DNS",
+	"LoadBalancer": "recreate load balancer with same configuration",
+	"AMI":          "re-create AMI from running instance",
+}
+
+// AnalyzeWaste converts waste findings into candidate actions via templates.
+// Every action is tied to a concrete resource ARN and produced with a rollback recipe.
+func AnalyzeWaste(findings []domain.WasteFinding) domain.AnalysisResult {
+	var (
+		actions   []domain.RecommendedAction
+		resources []string
+		totalSav  float64
+	)
+
+	for _, f := range findings {
+		actionType := wasteActionType[f.ResourceType]
+		if actionType == "" {
+			actionType = "review_resource"
+		}
+		risk := wasteRiskLevel[f.ResourceType]
+		if risk == "" {
+			risk = domain.RiskMedium
+		}
+		rollback := wasteRollback[f.ResourceType]
+		if rollback == "" {
+			rollback = "manual review required"
+		}
+
+		action := domain.NewRecommendedAction(
+			fmt.Sprintf("%s %s (%s)", actionType, f.ResourceID, f.Reason),
+			actionType,
+			risk,
+			rollback,
+		)
+		action.TargetResource = f.ResourceARN
+		action.EstimatedSavingsMonthly = f.EstimatedMonthlySavings
+		action.Parameters = map[string]any{
+			"resource_type": f.ResourceType,
+			"region":        f.Region,
+		}
+
+		actions = append(actions, action)
+		resources = append(resources, f.ResourceARN)
+		totalSav += f.EstimatedMonthlySavings
+	}
+
+	return domain.AnalysisResult{
+		RootCauseNarrative:      fmt.Sprintf("aws-doctor identified %d waste findings across scanned resources", len(findings)),
+		AffectedResources:       resources,
+		RecommendedActions:      actions,
+		EstimatedMonthlySavings: totalSav,
+		Confidence:              0.85,
+	}
+}

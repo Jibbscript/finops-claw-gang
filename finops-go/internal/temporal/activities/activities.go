@@ -25,18 +25,24 @@ type InfraDeps interface {
 	executor.TagFetcher
 }
 
+// AWSDocDeps provides aws-doctor waste query capability to activities.
+type AWSDocDeps interface {
+	triage.WasteQuerier
+}
+
 // Activities holds the dependencies for all Temporal activities.
 // Each method is registered as a Temporal activity.
 type Activities struct {
 	Cost     CostDeps
 	Infra    InfraDeps
 	KubeCost triage.KubeCostQuerier
+	AWSDoc   AWSDocDeps
 	Executor *executor.Executor
 }
 
 // TriageAnomaly classifies a cost anomaly using deterministic evidence checks.
-func (a *Activities) TriageAnomaly(_ context.Context, in TriageInput) (TriageOutput, error) {
-	result, err := triage.Triage(in.Anomaly, a.Cost, a.Infra, a.KubeCost, in.WindowStart, in.WindowEnd)
+func (a *Activities) TriageAnomaly(ctx context.Context, in TriageInput) (TriageOutput, error) {
+	result, err := triage.Triage(ctx, in.Anomaly, a.Cost, a.Infra, a.KubeCost, a.AWSDoc, in.WindowStart, in.WindowEnd)
 	if err != nil {
 		return TriageOutput{}, fmt.Errorf("triage activity: %w", err)
 	}
@@ -82,6 +88,30 @@ func (a *Activities) VerifyOutcome(_ context.Context, in VerifyOutcomeInput) (Ve
 		return VerifyOutcomeOutput{}, fmt.Errorf("verify activity: %w", err)
 	}
 	return VerifyOutcomeOutput{Result: result}, nil
+}
+
+// RunAWSDocWaste runs an aws-doctor waste scan and returns domain-level findings.
+func (a *Activities) RunAWSDocWaste(ctx context.Context, in AWSDocWasteInput) (AWSDocWasteOutput, error) {
+	if a.AWSDoc == nil {
+		return AWSDocWasteOutput{}, fmt.Errorf("aws-doctor not configured")
+	}
+	findings, err := a.AWSDoc.Waste(ctx, in.AccountID, in.Region)
+	if err != nil {
+		return AWSDocWasteOutput{}, fmt.Errorf("aws-doctor waste: %w", err)
+	}
+	var total float64
+	for _, f := range findings {
+		total += f.EstimatedMonthlySavings
+	}
+	return AWSDocWasteOutput{Findings: findings, TotalSavings: total}, nil
+}
+
+// RunAWSDocTrend runs an aws-doctor trend analysis. Currently stubbed —
+// the sweep workflow calls this to enrich evidence but the triage path
+// doesn't require it (trend data is supplementary).
+func (a *Activities) RunAWSDocTrend(_ context.Context, in AWSDocTrendInput) (AWSDocTrendOutput, error) {
+	// Phase 4 stub: real implementation would call Runner.Trend() + MapTrendMetrics().
+	return AWSDocTrendOutput{TrendDirection: "stable", VelocityPct: 0}, nil
 }
 
 // NotifySlack sends a notification to Slack. Stubbed for Phase 2.

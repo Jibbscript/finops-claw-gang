@@ -26,6 +26,8 @@ type Config struct {
 	CURWorkgroup     string
 	CUROutputBucket  string
 	KubeCostEndpoint string
+	AWSDocBinaryPath string
+	SweepAccounts    string
 }
 
 // LoadFromEnv reads configuration from environment variables with sensible defaults.
@@ -41,6 +43,8 @@ func LoadFromEnv() (Config, error) {
 		CURWorkgroup:     envOr("FINOPS_CUR_WORKGROUP", "primary"),
 		CUROutputBucket:  os.Getenv("FINOPS_CUR_OUTPUT_BUCKET"),
 		KubeCostEndpoint: os.Getenv("FINOPS_KUBECOST_ENDPOINT"),
+		AWSDocBinaryPath: envOr("FINOPS_AWSDOC_BINARY", "aws-doctor"),
+		SweepAccounts:    os.Getenv("FINOPS_SWEEP_ACCOUNTS"),
 	}
 
 	if cfg.Mode != ModeStub && cfg.Mode != ModeProduction {

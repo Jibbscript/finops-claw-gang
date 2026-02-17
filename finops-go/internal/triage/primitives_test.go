@@ -1,6 +1,7 @@
 package triage
 
 import (
+	"context"
 	"testing"
 
 	"github.com/finops-claw-gang/finops-go/internal/domain"
@@ -83,7 +84,7 @@ func TestTriageWithFixtures(t *testing.T) {
 		LookbackDays:      30,
 	}
 
-	result, err := Triage(anomaly, cost, infra, kube, "", "")
+	result, err := Triage(context.Background(), anomaly, cost, infra, kube, nil, "", "")
 	if err != nil {
 		t.Fatalf("Triage: %v", err)
 	}
@@ -91,6 +92,7 @@ func TestTriageWithFixtures(t *testing.T) {
 	// With our fixtures:
 	// - RI/SP coverage_delta=0.0, so no commitment drift
 	// - credits=-50 < 0.2*750=150, so no credits
+	// - no waste querier (nil)
 	// - no marketplace
 	// - data transfer=250 >= 150, so should hit data_transfer
 	if result.Category != domain.CategoryDataTransfer {
@@ -119,7 +121,7 @@ func TestTriageNilKubecost(t *testing.T) {
 		DeltaPercent: 31.25,
 	}
 
-	result, err := Triage(anomaly, cost, infra, nil, "", "")
+	result, err := Triage(context.Background(), anomaly, cost, infra, nil, nil, "", "")
 	if err != nil {
 		t.Fatalf("Triage with nil kubecost: %v", err)
 	}
@@ -215,7 +217,7 @@ func TestTriagePriorityBranches(t *testing.T) {
 			wantConf: 0.75,
 		},
 		{
-			name:      "priority 3: marketplace charges",
+			name:      "priority 4: marketplace charges",
 			anomalyID: "test-p3",
 			cost: &mockCostFetcher{
 				riCoverage: map[string]any{"coverage_delta": 0.0},
@@ -232,7 +234,7 @@ func TestTriagePriorityBranches(t *testing.T) {
 			wantConf: 0.8,
 		},
 		{
-			name:      "priority 3: marketplace via product code",
+			name:      "priority 4: marketplace via product code",
 			anomalyID: "test-p3-code",
 			cost: &mockCostFetcher{
 				riCoverage: map[string]any{"coverage_delta": 0.0},
@@ -249,7 +251,7 @@ func TestTriagePriorityBranches(t *testing.T) {
 			wantConf: 0.8,
 		},
 		{
-			name:      "priority 4: data transfer spike",
+			name:      "priority 5: data transfer spike",
 			anomalyID: "test-p4",
 			cost: &mockCostFetcher{
 				riCoverage: map[string]any{"coverage_delta": 0.0},
@@ -266,7 +268,7 @@ func TestTriagePriorityBranches(t *testing.T) {
 			wantConf: 0.85,
 		},
 		{
-			name:      "priority 5: k8s namespace allocation shift",
+			name:      "priority 6: k8s namespace allocation shift",
 			anomalyID: "test-p5",
 			cost: &mockCostFetcher{
 				riCoverage: map[string]any{"coverage_delta": 0.0},
@@ -289,7 +291,7 @@ func TestTriagePriorityBranches(t *testing.T) {
 			wantConf: 0.7,
 		},
 		{
-			name:      "priority 5: k8s below threshold",
+			name:      "priority 6: k8s below threshold",
 			anomalyID: "test-p5-low",
 			cost: &mockCostFetcher{
 				riCoverage: map[string]any{"coverage_delta": 0.0},
@@ -311,7 +313,7 @@ func TestTriagePriorityBranches(t *testing.T) {
 			wantConf: 0.4,
 		},
 		{
-			name:      "priority 6: deploy correlation",
+			name:      "priority 7: deploy correlation",
 			anomalyID: "test-p6",
 			cost: &mockCostFetcher{
 				riCoverage: map[string]any{"coverage_delta": 0.0},
@@ -326,7 +328,7 @@ func TestTriagePriorityBranches(t *testing.T) {
 			wantConf: 0.7,
 		},
 		{
-			name:      "priority 7: expected growth",
+			name:      "priority 8: expected growth",
 			anomalyID: "test-p7",
 			cost: &mockCostFetcher{
 				riCoverage: map[string]any{"coverage_delta": 0.0},
@@ -342,7 +344,7 @@ func TestTriagePriorityBranches(t *testing.T) {
 			wantConf: 0.8,
 		},
 		{
-			name:      "priority 8: unknown fallback",
+			name:      "priority 9: unknown fallback",
 			anomalyID: "test-p8",
 			cost: &mockCostFetcher{
 				riCoverage: map[string]any{"coverage_delta": 0.0},
@@ -370,7 +372,7 @@ func TestTriagePriorityBranches(t *testing.T) {
 				anomaly.DeltaDollars = 100.0
 			}
 
-			result, err := Triage(anomaly, tt.cost, tt.infra, tt.kubecost, "", "")
+			result, err := Triage(context.Background(), anomaly, tt.cost, tt.infra, tt.kubecost, nil, "", "")
 			if err != nil {
 				t.Fatalf("Triage: %v", err)
 			}
@@ -429,4 +431,107 @@ type mockKubeCostQuerier struct {
 
 func (m *mockKubeCostQuerier) Allocation(_, _ string) (map[string]any, error) {
 	return m.allocation, nil
+}
+
+type mockWasteQuerier struct {
+	findings []domain.WasteFinding
+	err      error
+}
+
+func (m *mockWasteQuerier) Waste(_ context.Context, _, _ string) ([]domain.WasteFinding, error) {
+	return m.findings, m.err
+}
+
+func TestTriageWastePriority(t *testing.T) {
+	t.Parallel()
+
+	baseAnomaly := domain.CostAnomaly{
+		AnomalyID:    "test-waste",
+		DetectedAt:   "2026-02-16T00:00:00Z",
+		Service:      "EC2",
+		AccountID:    "123456789012",
+		Region:       "us-east-1",
+		DeltaDollars: 500.0,
+		DeltaPercent: 20.0,
+	}
+
+	emptyCost := &mockCostFetcher{
+		riCoverage: map[string]any{"coverage_delta": 0.0},
+		spCoverage: map[string]any{"coverage_delta": 0.0},
+		curItems:   []map[string]any{},
+	}
+	emptyInfra := &mockInfraQuerier{
+		deploys: []map[string]any{},
+		metrics: map[string]any{"baseline": 0.0, "current": 0.0},
+	}
+
+	t.Run("priority 3: waste above threshold", func(t *testing.T) {
+		t.Parallel()
+		waste := &mockWasteQuerier{
+			findings: []domain.WasteFinding{
+				{
+					ResourceType:            "EC2",
+					ResourceID:              "i-abc123",
+					ResourceARN:             "arn:aws:ec2:us-east-1:123456789012:instance/i-abc123",
+					Reason:                  "stopped 30+ days",
+					EstimatedMonthlySavings: 150.0,
+					Region:                  "us-east-1",
+				},
+			},
+		}
+
+		result, err := Triage(context.Background(), baseAnomaly, emptyCost, emptyInfra, nil, waste, "", "")
+		if err != nil {
+			t.Fatalf("Triage: %v", err)
+		}
+		if result.Category != domain.CategoryResourceWaste {
+			t.Errorf("category = %q, want resource_waste", result.Category)
+		}
+		if result.Confidence != 0.85 {
+			t.Errorf("confidence = %f, want 0.85", result.Confidence)
+		}
+		if len(result.Evidence.WasteFindings) != 1 {
+			t.Errorf("expected 1 waste finding, got %d", len(result.Evidence.WasteFindings))
+		}
+		if result.Evidence.WasteSavings == nil || *result.Evidence.WasteSavings != 150.0 {
+			t.Errorf("waste_savings = %v, want 150.0", result.Evidence.WasteSavings)
+		}
+	})
+
+	t.Run("priority 3: waste below threshold falls through", func(t *testing.T) {
+		t.Parallel()
+		waste := &mockWasteQuerier{
+			findings: []domain.WasteFinding{
+				{
+					ResourceType:            "ElasticIP",
+					ResourceID:              "eipalloc-abc",
+					EstimatedMonthlySavings: 3.60, // below 0.2*500=100 threshold
+				},
+			},
+		}
+
+		result, err := Triage(context.Background(), baseAnomaly, emptyCost, emptyInfra, nil, waste, "", "")
+		if err != nil {
+			t.Fatalf("Triage: %v", err)
+		}
+		// Should fall through to unknown since no other signals match
+		if result.Category == domain.CategoryResourceWaste {
+			t.Error("expected waste to fall through (below threshold)")
+		}
+		// But waste findings should still be in evidence
+		if len(result.Evidence.WasteFindings) != 1 {
+			t.Errorf("expected waste findings in evidence even when below threshold")
+		}
+	})
+
+	t.Run("nil waste querier skips check", func(t *testing.T) {
+		t.Parallel()
+		result, err := Triage(context.Background(), baseAnomaly, emptyCost, emptyInfra, nil, nil, "", "")
+		if err != nil {
+			t.Fatalf("Triage: %v", err)
+		}
+		if len(result.Evidence.WasteFindings) != 0 {
+			t.Error("expected no waste findings when querier is nil")
+		}
+	})
 }

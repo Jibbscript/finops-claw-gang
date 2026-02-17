@@ -32,6 +32,7 @@ const (
 	CategoryMarketplace             AnomalyCategory = "marketplace"
 	CategoryDataTransfer            AnomalyCategory = "data_transfer"
 	CategoryK8sCostShift            AnomalyCategory = "k8s_cost_shift"
+	CategoryResourceWaste           AnomalyCategory = "resource_waste"
 	CategoryCommitmentCoverageDrift AnomalyCategory = "commitment_coverage_drift"
 	CategoryUnknown                 AnomalyCategory = "unknown"
 )
@@ -40,8 +41,8 @@ func (c AnomalyCategory) Valid() bool {
 	switch c {
 	case CategoryExpectedGrowth, CategoryDeployRelated, CategoryConfigDrift,
 		CategoryPricingChange, CategoryCreditsRefundsFees, CategoryMarketplace,
-		CategoryDataTransfer, CategoryK8sCostShift, CategoryCommitmentCoverageDrift,
-		CategoryUnknown:
+		CategoryDataTransfer, CategoryK8sCostShift, CategoryResourceWaste,
+		CategoryCommitmentCoverageDrift, CategoryUnknown:
 		return true
 	}
 	return false
